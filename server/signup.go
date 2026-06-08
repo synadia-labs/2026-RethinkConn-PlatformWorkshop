@@ -61,20 +61,51 @@ func (h *signupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	account, err := h.createAccount(ctx, client, systemID)
+	account, err := h.findExistingAccount(ctx, client, systemID)
+	if err != nil {
+		log.Printf("signup: find existing account: %s", apiError(err))
+		http.Error(w, fmt.Sprintf("failed to check existing account: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if account != nil {
+		log.Printf("signup: found existing sygma account %s (%s)", account.Name, account.Id)
+		userID, err := h.findBrowserUser(ctx, client, account.Id)
+		if err != nil {
+			log.Printf("signup: find browser user: %s", apiError(err))
+			http.Error(w, fmt.Sprintf("failed to find browser user: %v", err), http.StatusInternalServerError)
+			return
+		}
+		creds, err := h.downloadCreds(ctx, client, userID)
+		if err != nil {
+			log.Printf("signup: download creds: %s", apiError(err))
+			http.Error(w, fmt.Sprintf("failed to download creds: %v", err), http.StatusInternalServerError)
+			return
+		}
+		resp := signupResponse{
+			AccountID:        account.Id,
+			AccountPublicKey: ptrVal(account.AccountPublicKey),
+			Creds:            creds,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	newAccount, err := h.createAccount(ctx, client, systemID)
 	if err != nil {
 		log.Printf("signup: create account: %s", apiError(err))
 		http.Error(w, fmt.Sprintf("failed to create account: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	if err := h.createServiceImport(ctx, client, account.Id); err != nil {
+	if err := h.createServiceImport(ctx, client, newAccount.Id); err != nil {
 		log.Printf("signup: create service import: %s", apiError(err))
 		http.Error(w, fmt.Sprintf("failed to configure imports: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	jwt, userID, err := h.createBrowserUser(ctx, client, account.Id)
+	_, userID, err := h.createBrowserUser(ctx, client, newAccount.Id)
 	if err != nil {
 		log.Printf("signup: create browser user: %s", apiError(err))
 		http.Error(w, fmt.Sprintf("failed to create user: %v", err), http.StatusInternalServerError)
@@ -89,15 +120,14 @@ func (h *signupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := signupResponse{
-		AccountID:        account.Id,
-		AccountPublicKey: ptrVal(account.AccountPublicKey),
+		AccountID:        newAccount.Id,
+		AccountPublicKey: ptrVal(newAccount.AccountPublicKey),
 		Creds:            creds,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 
-	log.Printf("signup: created account %s (%s) for team %s", account.Name, account.Id, teamID)
-	_ = jwt
+	log.Printf("signup: created account %s (%s) for team %s", newAccount.Name, newAccount.Id, teamID)
 }
 
 func (h *signupHandler) cpContext(parent context.Context, token string, baseURL string) context.Context {
@@ -135,6 +165,32 @@ func (h *signupHandler) findNGSSystem(ctx context.Context, client *syncp.APIClie
 		}
 	}
 	return "", fmt.Errorf("no NGS system found in team")
+}
+
+func (h *signupHandler) findExistingAccount(ctx context.Context, client *syncp.APIClient, systemID string) (*syncp.AccountViewResponse, error) {
+	accounts, _, err := client.SystemAPI.ListAccounts(ctx, systemID).Execute()
+	if err != nil {
+		return nil, fmt.Errorf("list accounts: %w", err)
+	}
+	for _, a := range accounts.Items {
+		if a.Name == "sygma" {
+			return &a, nil
+		}
+	}
+	return nil, nil
+}
+
+func (h *signupHandler) findBrowserUser(ctx context.Context, client *syncp.APIClient, accountID string) (string, error) {
+	users, _, err := client.AccountAPI.ListUsers(ctx, accountID).Execute()
+	if err != nil {
+		return "", fmt.Errorf("list users: %w", err)
+	}
+	for _, u := range users.Items {
+		if u.Name == "sygma-browser" {
+			return u.Id, nil
+		}
+	}
+	return "", fmt.Errorf("sygma-browser user not found")
 }
 
 func (h *signupHandler) createAccount(ctx context.Context, client *syncp.APIClient, systemID string) (*syncp.AccountViewResponse, error) {
