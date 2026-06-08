@@ -1,16 +1,26 @@
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Plus, LogOut, Trash2 } from 'lucide-react'
-import type { NatsConnection } from '@nats-io/nats-core'
+import { WhiteboardPreview } from '#/components/whiteboard-preview'
+import type { WhiteboardInfo } from '#/lib/nats'
 import {
   connectNats,
   createWhiteboard,
   deleteWhiteboard,
+  ensureStream,
   listWhiteboards,
   renameWhiteboard,
 } from '#/lib/nats'
-import type { WhiteboardInfo } from '#/lib/nats'
-import { WhiteboardPreview } from '#/components/whiteboard-preview'
+import type { NatsConnection } from '@nats-io/nats-core'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import {
+  Check,
+  Copy,
+  Import,
+  LogOut,
+  Plus,
+  Share2,
+  Trash2,
+  X,
+} from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 export const Route = createFileRoute('/')({ component: Home })
 
@@ -75,14 +85,22 @@ function SignupForm({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[var(--bg-base)]">
-      <h1 className="font-serif text-5xl font-bold text-[var(--sea-ink)]">&Sigma;ygma</h1>
+      <h1 className="font-serif text-5xl font-bold text-[var(--sea-ink)]">
+        &Sigma;ygma
+      </h1>
       <p className="text-xl text-[var(--sea-ink-soft)]">
         Collaborative whiteboard powered by NATS
       </p>
 
-      <form onSubmit={handleSubmit} className="flex w-full max-w-md flex-col gap-4">
+      <form
+        onSubmit={handleSubmit}
+        className="flex w-full max-w-md flex-col gap-4"
+      >
         <div>
-          <label htmlFor="token" className="mb-1 block text-sm font-medium text-[var(--sea-ink)]">
+          <label
+            htmlFor="token"
+            className="mb-1 block font-medium text-[var(--sea-ink)]"
+          >
             Synadia Cloud Personal Access Token
           </label>
           <input
@@ -92,12 +110,15 @@ function SignupForm({ onSuccess }: { onSuccess: () => void }) {
             onChange={(e) => setToken(e.target.value)}
             placeholder="uat_..."
             required
-            className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-sm text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
+            className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
           />
         </div>
 
         <div>
-          <label htmlFor="cpUrl" className="mb-1 block text-sm font-medium text-[var(--sea-ink)]">
+          <label
+            htmlFor="cpUrl"
+            className="mb-1 block font-medium text-[var(--sea-ink)]"
+          >
             Synadia Cloud URL
           </label>
           <input
@@ -105,13 +126,17 @@ function SignupForm({ onSuccess }: { onSuccess: () => void }) {
             type="url"
             value={cpUrl}
             onChange={(e) => setCpUrl(e.target.value)}
-            className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-sm text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
+            className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
           />
         </div>
 
         <div>
-          <label htmlFor="teamId" className="mb-1 block text-sm font-medium text-[var(--sea-ink)]">
-            Team ID <span className="text-[var(--sea-ink-soft)]">(optional)</span>
+          <label
+            htmlFor="teamId"
+            className="mb-1 block font-medium text-[var(--sea-ink)]"
+          >
+            Team ID{' '}
+            <span className="text-[var(--sea-ink-soft)]">(optional)</span>
           </label>
           <input
             id="teamId"
@@ -119,11 +144,11 @@ function SignupForm({ onSuccess }: { onSuccess: () => void }) {
             value={teamId}
             onChange={(e) => setTeamId(e.target.value)}
             placeholder="Leave blank to auto-detect"
-            className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-sm text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
+            className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
           />
         </div>
 
-        {error && <p className="text-sm text-red-500">{error}</p>}
+        {error && <p className="text-red-500">{error}</p>}
 
         <button
           type="submit"
@@ -152,6 +177,109 @@ function timeAgo(dateStr: string): string {
   return `${months}mo ago`
 }
 
+function CopyField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false)
+
+  function copy() {
+    navigator.clipboard.writeText(value)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div>
+      <p className="mb-1 font-medium text-[var(--sea-ink-soft)]">{label}</p>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 overflow-x-auto rounded bg-[var(--sand)] px-2 py-1.5 font-mono text-[var(--sea-ink)]">
+          {value}
+        </code>
+        <button
+          onClick={copy}
+          className="rounded p-1.5 text-[var(--sea-ink-soft)] hover:text-[var(--sea-ink)]"
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ShareModal({
+  board,
+  onClose,
+}: {
+  board: WhiteboardInfo
+  onClose: () => void
+}) {
+  const accountNkey = localStorage.getItem('sygma_account_nkey') || ''
+  const subject = `whiteboard.${board.id}.>`
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-[var(--sea-ink)]">
+            Share "{board.name}"
+          </h3>
+          <button
+            onClick={onClose}
+            className="rounded p-1 text-[var(--sea-ink-soft)] hover:text-[var(--sea-ink)]"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <p className="text-[var(--sea-ink-soft)]">
+            To share this whiteboard, both you and the recipient need to
+            configure subject exports/imports in Synadia Cloud.
+          </p>
+
+          <div className="space-y-3 rounded-lg border border-[var(--line)] p-4">
+            <p className="font-semibold text-[var(--sea-ink)]">
+              Your info (give to recipient)
+            </p>
+            <CopyField label="Account Public Key" value={accountNkey} />
+            <CopyField label="Subject" value={subject} />
+          </div>
+
+          <div className="space-y-2 rounded-lg border border-[var(--line)] p-4">
+            <p className="font-semibold text-[var(--sea-ink)]">Steps</p>
+            <ol className="list-inside list-decimal space-y-1.5 text-[var(--sea-ink-soft)]">
+              <li>
+                <strong className="text-[var(--sea-ink)]">You (owner):</strong>{' '}
+                In Synadia Cloud, go to your sygma account and create a{' '}
+                <strong>Subject Export</strong> for{' '}
+                <code className="rounded bg-[var(--sand)] px-1 font-mono">
+                  {subject}
+                </code>
+              </li>
+              <li>
+                <strong className="text-[var(--sea-ink)]">Recipient:</strong> In
+                Synadia Cloud, create a <strong>Subject Import</strong> using
+                your Account Public Key and subject above
+              </li>
+              <li>
+                <strong className="text-[var(--sea-ink)]">Recipient:</strong>{' '}
+                Click "Import board" in Sygma and enter the board ID:{' '}
+                <code className="rounded bg-[var(--sand)] px-1 font-mono">
+                  {board.id}
+                </code>
+              </li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function BoardCard({
   board,
   nc,
@@ -165,6 +293,7 @@ function BoardCard({
 }) {
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(board.name)
+  const [showShare, setShowShare] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -217,38 +346,49 @@ function BoardCard({
                     setEditing(false)
                   }
                 }}
-                className="w-full rounded border border-[var(--lagoon)] bg-[var(--surface-strong)] px-1 py-0.5 text-sm font-medium text-[var(--sea-ink)] outline-none"
+                className="w-full rounded border border-[var(--lagoon)] bg-[var(--surface-strong)] px-1 py-0.5 font-medium text-[var(--sea-ink)] outline-none"
               />
             </form>
           ) : (
             <p
-              className="cursor-text truncate text-sm font-semibold text-[var(--sea-ink)] group-hover:text-[var(--lagoon)]"
+              className="cursor-text truncate font-semibold text-[var(--sea-ink)] group-hover:text-[var(--lagoon)]"
               onDoubleClick={() => setEditing(true)}
             >
               {board.name}
             </p>
           )}
           {board.lastModified && (
-            <p className="mt-0.5 text-xs text-[var(--sea-ink-soft)]">
+            <p className="mt-0.5 text-[var(--sea-ink-soft)]">
               Edited {timeAgo(board.lastModified)}
             </p>
           )}
         </div>
-        <button
-          onClick={async () => {
-            if (!nc) return
-            try {
-              await deleteWhiteboard(nc, board.id)
-              onDelete(board.id)
-            } catch (err) {
-              console.error('delete whiteboard:', err)
-            }
-          }}
-          className="ml-2 rounded p-1 text-[var(--sea-ink-soft)] opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
-        >
-          <Trash2 size={14} />
-        </button>
+        <div className="ml-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          <button
+            onClick={() => setShowShare(true)}
+            className="rounded p-1 text-[var(--sea-ink-soft)] hover:text-[var(--lagoon)]"
+          >
+            <Share2 size={14} />
+          </button>
+          <button
+            onClick={async () => {
+              if (!nc) return
+              try {
+                await deleteWhiteboard(nc, board.id)
+                onDelete(board.id)
+              } catch (err) {
+                console.error('delete whiteboard:', err)
+              }
+            }}
+            className="rounded p-1 text-[var(--sea-ink-soft)] hover:text-red-500"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
+      {showShare && (
+        <ShareModal board={board} onClose={() => setShowShare(false)} />
+      )}
     </div>
   )
 }
@@ -259,7 +399,12 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
   const [creating, setCreating] = useState(false)
   const [showNameInput, setShowNameInput] = useState(false)
   const [newName, setNewName] = useState('')
+  const [showImport, setShowImport] = useState(false)
+  const [importId, setImportId] = useState('')
+  const [importName, setImportName] = useState('')
+  const [importing, setImporting] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const ncRef = useRef<NatsConnection | null>(null)
   const navigate = useNavigate()
 
@@ -269,7 +414,9 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
     const list = await listWhiteboards(nc)
     list.sort((a, b) => {
       if (!a.lastModified || !b.lastModified) return 0
-      return new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime()
+      return (
+        new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime()
+      )
     })
     setBoards(list)
     setLoading(false)
@@ -294,6 +441,29 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
     if (showNameInput) nameInputRef.current?.focus()
   }, [showNameInput])
 
+  useEffect(() => {
+    if (showImport) importInputRef.current?.focus()
+  }, [showImport])
+
+  async function handleImport() {
+    const nc = ncRef.current
+    const id = importId.trim()
+    if (!nc || !id) return
+    setImporting(true)
+    try {
+      await ensureStream(nc, `whiteboard_${id}`, [`whiteboard.${id}.>`])
+      setShowImport(false)
+      setImportId('')
+      setImportName('')
+      await nc.close()
+      ncRef.current = null
+      navigate({ to: '/board/$id', params: { id } })
+    } catch (err) {
+      console.error('import whiteboard:', err)
+      setImporting(false)
+    }
+  }
+
   async function handleCreate() {
     const nc = ncRef.current
     if (!nc) return
@@ -313,10 +483,12 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
   return (
     <div className="flex min-h-screen flex-col bg-[var(--bg-base)]">
       <header className="flex items-center justify-between border-b border-[var(--line)] bg-[var(--header-bg)] px-6 py-3 backdrop-blur-sm">
-        <h1 className="font-serif text-xl font-bold text-[var(--sea-ink)]">&Sigma;ygma</h1>
+        <h1 className="font-serif text-xl font-bold text-[var(--sea-ink)]">
+          &Sigma;ygma
+        </h1>
         <button
           onClick={onSignOut}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-[var(--sea-ink-soft)] hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)]"
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[var(--sea-ink-soft)] hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)]"
         >
           <LogOut size={14} />
           Sign out
@@ -325,8 +497,63 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
 
       <main className="flex-1 px-6 py-6">
         <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-[var(--sea-ink)]">Whiteboards</h2>
+          <h2 className="text-lg font-semibold text-[var(--sea-ink)]">
+            Whiteboards
+          </h2>
           <div className="flex items-center gap-2">
+            {showImport && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  handleImport()
+                }}
+                className="flex items-center gap-2"
+              >
+                <input
+                  ref={importInputRef}
+                  type="text"
+                  value={importId}
+                  onChange={(e) => setImportId(e.target.value)}
+                  placeholder="Board ID"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setShowImport(false)
+                      setImportId('')
+                      setImportName('')
+                    }
+                  }}
+                  className="w-48 rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1.5 font-mono text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
+                />
+                <input
+                  type="text"
+                  value={importName}
+                  onChange={(e) => setImportName(e.target.value)}
+                  placeholder="Name (optional)"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setShowImport(false)
+                      setImportId('')
+                      setImportName('')
+                    }
+                  }}
+                  className="w-36 rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1.5 text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
+                />
+              </form>
+            )}
+            <button
+              onClick={() => {
+                if (showImport) {
+                  handleImport()
+                } else {
+                  setShowImport(true)
+                }
+              }}
+              disabled={importing || loading}
+              className="flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-4 py-2 font-medium text-[var(--sea-ink)] hover:bg-[var(--link-bg-hover)] disabled:opacity-50"
+            >
+              <Import size={16} />
+              {importing ? 'Importing...' : 'Import board'}
+            </button>
             {showNameInput && (
               <form
                 onSubmit={(e) => {
@@ -347,7 +574,7 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
                       setNewName('')
                     }
                   }}
-                  className="rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1.5 text-sm text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
+                  className="rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1.5 text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
                 />
               </form>
             )}
@@ -360,7 +587,7 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
                 }
               }}
               disabled={creating || loading}
-              className="flex items-center gap-1.5 rounded-lg bg-[var(--lagoon-deep)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--lagoon)] disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg bg-[var(--lagoon-deep)] px-4 py-2 font-medium text-white hover:bg-[var(--lagoon)] disabled:opacity-50"
             >
               <Plus size={16} />
               {creating ? 'Creating...' : 'New whiteboard'}
@@ -374,8 +601,10 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
           </div>
         ) : boards.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-20">
-            <p className="text-lg text-[var(--sea-ink-soft)]">No whiteboards yet</p>
-            <p className="text-sm text-[var(--sea-ink-soft)]">
+            <p className="text-lg text-[var(--sea-ink-soft)]">
+              No whiteboards yet
+            </p>
+            <p className="text-[var(--sea-ink-soft)]">
               Create your first whiteboard to get started.
             </p>
           </div>
