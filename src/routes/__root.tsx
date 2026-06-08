@@ -1,41 +1,5 @@
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-
-import appCss from '../styles.css?url'
+import { Outlet, createRootRoute } from '@tanstack/react-router'
 
 export const Route = createRootRoute({
-  head: () => ({
-    meta: [
-      {
-        charSet: 'utf-8',
-      },
-      {
-        name: 'viewport',
-        content: 'width=device-width, initial-scale=1',
-      },
-      {
-        title: 'TanStack Start Starter',
-      },
-    ],
-    links: [
-      {
-        rel: 'stylesheet',
-        href: appCss,
-      },
-    ],
-  }),
-  shellComponent: RootDocument,
+  component: () => <Outlet />,
 })
-
-function RootDocument({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <HeadContent />
-      </head>
-      <body className="font-sans antialiased [overflow-wrap:anywhere]">
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  )
-}
