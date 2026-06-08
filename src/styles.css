@@ -5,73 +5,74 @@
 
 @theme {
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Fraunces", ui-serif, Georgia, serif;
 }
 
 :root {
-  --sea-ink: #173a40;
-  --sea-ink-soft: #416166;
-  --lagoon: #4fb8b2;
-  --lagoon-deep: #328f97;
-  --palm: #2f6a4a;
-  --sand: #e7f0e8;
-  --foam: #f3faf5;
-  --surface: rgba(255, 255, 255, 0.74);
-  --surface-strong: rgba(255, 255, 255, 0.9);
-  --line: rgba(23, 58, 64, 0.14);
+  --sea-ink: #18181b;
+  --sea-ink-soft: #71717a;
+  --lagoon: #10b981;
+  --lagoon-deep: #059669;
+  --palm: #047857;
+  --sand: #f4f4f5;
+  --foam: #fafafa;
+  --surface: rgba(255, 255, 255, 0.9);
+  --surface-strong: #ffffff;
+  --line: #e4e4e7;
   --inset-glint: rgba(255, 255, 255, 0.82);
-  --kicker: rgba(47, 106, 74, 0.9);
-  --bg-base: #e7f3ec;
-  --header-bg: rgba(251, 255, 248, 0.84);
+  --kicker: #065f46;
+  --bg-base: #fafafa;
+  --header-bg: rgba(255, 255, 255, 0.92);
   --chip-bg: rgba(255, 255, 255, 0.8);
-  --chip-line: rgba(47, 106, 74, 0.18);
-  --link-bg-hover: rgba(255, 255, 255, 0.9);
-  --hero-a: rgba(79, 184, 178, 0.36);
-  --hero-b: rgba(47, 106, 74, 0.2);
+  --chip-line: #d4d4d8;
+  --link-bg-hover: #f4f4f5;
+  --hero-a: rgba(16, 185, 129, 0.2);
+  --hero-b: rgba(20, 184, 166, 0.12);
 }
 
 :root[data-theme="dark"] {
-  --sea-ink: #d7ece8;
-  --sea-ink-soft: #afcdc8;
-  --lagoon: #60d7cf;
-  --lagoon-deep: #8de5db;
-  --palm: #6ec89a;
-  --sand: #0f1a1e;
-  --foam: #101d22;
-  --surface: rgba(16, 30, 34, 0.8);
-  --surface-strong: rgba(15, 27, 31, 0.92);
-  --line: rgba(141, 229, 219, 0.18);
-  --inset-glint: rgba(194, 247, 238, 0.14);
-  --kicker: #b8efe5;
-  --bg-base: #0a1418;
-  --header-bg: rgba(10, 20, 24, 0.8);
-  --chip-bg: rgba(13, 28, 32, 0.9);
-  --chip-line: rgba(141, 229, 219, 0.24);
-  --link-bg-hover: rgba(24, 44, 49, 0.8);
-  --hero-a: rgba(96, 215, 207, 0.18);
-  --hero-b: rgba(110, 200, 154, 0.12);
+  --sea-ink: #e4e4e7;
+  --sea-ink-soft: #a1a1aa;
+  --lagoon: #10b981;
+  --lagoon-deep: #059669;
+  --palm: #6ee7b7;
+  --sand: #18181b;
+  --foam: #09090b;
+  --surface: rgba(24, 24, 27, 0.9);
+  --surface-strong: #27272a;
+  --line: #3f3f46;
+  --inset-glint: rgba(228, 228, 231, 0.1);
+  --kicker: #6ee7b7;
+  --bg-base: #09090b;
+  --header-bg: rgba(9, 9, 11, 0.92);
+  --chip-bg: #27272a;
+  --chip-line: #3f3f46;
+  --link-bg-hover: #27272a;
+  --hero-a: rgba(16, 185, 129, 0.15);
+  --hero-b: rgba(20, 184, 166, 0.1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --sea-ink: #d7ece8;
-    --sea-ink-soft: #afcdc8;
-    --lagoon: #60d7cf;
-    --lagoon-deep: #8de5db;
-    --palm: #6ec89a;
-    --sand: #0f1a1e;
-    --foam: #101d22;
-    --surface: rgba(16, 30, 34, 0.8);
-    --surface-strong: rgba(15, 27, 31, 0.92);
-    --line: rgba(141, 229, 219, 0.18);
-    --inset-glint: rgba(194, 247, 238, 0.14);
-    --kicker: #b8efe5;
-    --bg-base: #0a1418;
-    --header-bg: rgba(10, 20, 24, 0.8);
-    --chip-bg: rgba(13, 28, 32, 0.9);
-    --chip-line: rgba(141, 229, 219, 0.24);
-    --link-bg-hover: rgba(24, 44, 49, 0.8);
-    --hero-a: rgba(96, 215, 207, 0.18);
-    --hero-b: rgba(110, 200, 154, 0.12);
+    --sea-ink: #e4e4e7;
+    --sea-ink-soft: #a1a1aa;
+    --lagoon: #10b981;
+    --lagoon-deep: #059669;
+    --palm: #6ee7b7;
+    --sand: #18181b;
+    --foam: #09090b;
+    --surface: rgba(24, 24, 27, 0.9);
+    --surface-strong: #27272a;
+    --line: #3f3f46;
+    --inset-glint: rgba(228, 228, 231, 0.1);
+    --kicker: #6ee7b7;
+    --bg-base: #09090b;
+    --header-bg: rgba(9, 9, 11, 0.92);
+    --chip-bg: #27272a;
+    --chip-line: #3f3f46;
+    --link-bg-hover: #27272a;
+    --hero-a: rgba(16, 185, 129, 0.15);
+    --hero-b: rgba(20, 184, 166, 0.1);
   }
 }
 

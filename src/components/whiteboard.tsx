@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Pencil, Eraser, Trash2 } from 'lucide-react'
 import type { NatsConnection } from '@nats-io/nats-core'
-import { nanos } from '@nats-io/nats-core'
 import { connectNats, ensureStream, rollupHeaders } from '#/lib/nats'
 import { jetstream } from '@nats-io/jetstream'
 
@@ -102,7 +101,7 @@ export function Whiteboard({ id }: { id: string }) {
 
       const js = jetstream(nc)
       const consumer = await js.consumers.get(streamName, {
-        inactive_threshold: nanos(10 * 1000),
+        inactive_threshold: 10_000,
       })
       const info = await consumer.info()
       if (info.num_pending === 0) setReady(true)
@@ -167,8 +166,9 @@ export function Whiteboard({ id }: { id: string }) {
     function resize() {
       if (!canvas || !ctx) return
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      canvas.width = window.innerWidth
-      canvas.height = window.innerHeight
+      const parent = canvas.parentElement
+      canvas.width = parent ? parent.clientWidth : window.innerWidth
+      canvas.height = parent ? parent.clientHeight : window.innerHeight
       ctx.putImageData(imageData, 0, 0)
     }
     resize()
@@ -231,27 +231,30 @@ export function Whiteboard({ id }: { id: string }) {
     publish({ type: 'clear', id: localIdRef.current })
   }, [publish])
 
+  const toolbarBtnClass = (active: boolean) =>
+    `flex items-center justify-center w-10 h-10 rounded transition-colors ${active ? 'bg-[var(--lagoon)] text-white' : 'text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200'}`
+
   return (
-    <div className="relative h-screen w-screen overflow-hidden">
+    <div className="relative flex h-screen w-screen overflow-hidden">
       {!ready && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white">
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-neutral-200">
           {error ? (
             <>
-              <p className="max-w-md text-center text-sm text-red-500">{error}</p>
+              <p className="max-w-md text-center text-sm text-red-600">{error}</p>
               <button
                 onClick={() => window.location.reload()}
-                className="rounded-lg bg-[var(--lagoon-deep)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--lagoon)]"
+                className="rounded bg-neutral-800 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700"
               >
                 Retry
               </button>
-              <Link to="/" className="text-sm text-[var(--sea-ink-soft)] hover:text-[var(--sea-ink)]">
+              <Link to="/" className="text-sm text-neutral-500 hover:text-neutral-800">
                 Back to whiteboards
               </Link>
             </>
           ) : (
             <>
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[var(--lagoon)]" />
-              <p className="text-sm text-[var(--sea-ink-soft)]">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-neutral-300 border-t-neutral-700" />
+              <p className="text-sm text-neutral-500">
                 {connected ? 'Loading whiteboard...' : 'Connecting...'}
               </p>
             </>
@@ -259,59 +262,69 @@ export function Whiteboard({ id }: { id: string }) {
         </div>
       )}
 
-      <div className="absolute top-0 z-10 w-full">
-        <div className="flex items-center gap-3 p-4">
-          <Link
-            to="/"
-            className="flex items-center justify-center rounded-lg p-1.5 text-slate-600 hover:bg-slate-100"
+      <div className="z-10 flex w-12 flex-col items-center gap-1 bg-neutral-900 py-2">
+        <Link
+          to="/"
+          className={toolbarBtnClass(false)}
+        >
+          <ArrowLeft size={18} />
+        </Link>
+
+        <div className="my-1 h-px w-6 bg-neutral-700" />
+
+        <button className={toolbarBtnClass(true)} title="Draw">
+          <Pencil size={18} />
+        </button>
+
+        <button onClick={clear} className={toolbarBtnClass(false)} title="Clear canvas">
+          <Trash2 size={18} />
+        </button>
+
+        <button
+          onClick={() => setColor('#ffffff')}
+          className={toolbarBtnClass(color === '#ffffff')}
+          title="Eraser"
+        >
+          <Eraser size={18} />
+        </button>
+
+        <div className="my-1 h-px w-6 bg-neutral-700" />
+
+        {COLORS.map((c) => (
+          <button
+            key={c}
+            onClick={() => setColor(c)}
+            className="flex h-8 w-8 items-center justify-center"
+            title={c}
           >
-            <ArrowLeft size={20} />
-          </Link>
-          <div className="flex gap-3 border-r border-slate-300 pr-4">
-            {COLORS.map((c) => (
-              <button
-                key={c}
-                className={`block h-8 w-8 rounded-full border border-slate-300 transition-all hover:ring-2 ring-offset-1 ${color === c ? 'ring-2' : ''}`}
-                style={{ background: c }}
-                onClick={() => setColor(c)}
-              />
-            ))}
-          </div>
-
-          <div className="flex gap-4 border-r border-slate-300 pr-4">
-            <select
-              className="bg-white"
-              value={thickness}
-              onChange={(e) => setThickness(Number(e.target.value))}
-            >
-              {THICKNESSES.map((n) => (
-                <option key={n} value={n}>
-                  {n}pt
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <button type="button" onClick={clear} className="stroke-slate-600 fill-transparent">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-6 w-6"
-              viewBox="0 0 24 24"
-              strokeWidth="2"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-              />
-            </svg>
+            <span
+              className={`block h-5 w-5 rounded-full border-2 transition-transform ${color === c ? 'scale-110 border-white' : 'border-neutral-600'}`}
+              style={{ background: c }}
+            />
           </button>
-        </div>
+        ))}
+
+        <div className="my-1 h-px w-6 bg-neutral-700" />
+
+        {THICKNESSES.map((n) => (
+          <button
+            key={n}
+            onClick={() => setThickness(n)}
+            className={`flex h-8 w-8 items-center justify-center ${thickness === n ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'}`}
+            title={`${n}pt`}
+          >
+            <span
+              className="block rounded-full bg-current"
+              style={{ width: Math.max(n * 0.6, 4), height: Math.max(n * 0.6, 4) }}
+            />
+          </button>
+        ))}
       </div>
 
       <div
-        className="h-screen w-screen"
+        className="relative flex-1"
         style={{
+          backgroundColor: '#ffffff',
           backgroundImage: 'radial-gradient(circle, #d1d5db 1px, transparent 1px)',
           backgroundSize: '24px 24px',
         }}

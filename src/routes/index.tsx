@@ -75,7 +75,7 @@ function SignupForm({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[var(--bg-base)]">
-      <h1 className="text-5xl font-bold text-[var(--sea-ink)]">&Sigma;ygma</h1>
+      <h1 className="font-serif text-5xl font-bold text-[var(--sea-ink)]">&Sigma;ygma</h1>
       <p className="text-xl text-[var(--sea-ink-soft)]">
         Collaborative whiteboard powered by NATS
       </p>
@@ -188,7 +188,7 @@ function BoardCard({
   }
 
   return (
-    <div className="group overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] transition-shadow hover:shadow-lg">
+    <div className="group overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] shadow-sm transition-shadow hover:shadow-lg">
       <Link
         to="/board/$id"
         params={{ id: board.id }}
@@ -196,7 +196,7 @@ function BoardCard({
       >
         {nc && <WhiteboardPreview id={board.id} nc={nc} />}
       </Link>
-      <div className="flex items-start justify-between border-t border-[var(--line)] px-4 py-3">
+      <div className="flex items-start justify-between border-t border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3">
         <div className="min-w-0 flex-1">
           {editing ? (
             <form
@@ -222,7 +222,7 @@ function BoardCard({
             </form>
           ) : (
             <p
-              className="cursor-text truncate text-sm font-medium text-[var(--sea-ink)] group-hover:text-[var(--lagoon-deep)]"
+              className="cursor-text truncate text-sm font-semibold text-[var(--sea-ink)] group-hover:text-[var(--lagoon)]"
               onDoubleClick={() => setEditing(true)}
             >
               {board.name}
@@ -313,7 +313,7 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
   return (
     <div className="flex min-h-screen flex-col bg-[var(--bg-base)]">
       <header className="flex items-center justify-between border-b border-[var(--line)] bg-[var(--header-bg)] px-6 py-3 backdrop-blur-sm">
-        <h1 className="text-xl font-bold text-[var(--sea-ink)]">&Sigma;ygma</h1>
+        <h1 className="font-serif text-xl font-bold text-[var(--sea-ink)]">&Sigma;ygma</h1>
         <button
           onClick={onSignOut}
           className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-[var(--sea-ink-soft)] hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)]"
