@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from '@tanstack/react-router'
+import { ArrowLeft } from 'lucide-react'
 import type { NatsConnection } from '@nats-io/nats-core'
 import { connectNats, ensureStream, rollupHeaders } from '#/lib/nats'
 import { jetstream } from '@nats-io/jetstream'
@@ -210,6 +212,12 @@ export function Whiteboard({ id }: { id: string }) {
     <div className="relative h-screen w-screen overflow-hidden">
       <div className="absolute top-0 z-10 w-full">
         <div className="flex items-center gap-3 p-4">
+          <Link
+            to="/"
+            className="flex items-center justify-center rounded-lg p-1.5 text-slate-600 hover:bg-slate-100"
+          >
+            <ArrowLeft size={20} />
+          </Link>
           <div className="flex gap-3 border-r border-slate-300 pr-4">
             {COLORS.map((c) => (
               <button
@@ -259,6 +267,7 @@ export function Whiteboard({ id }: { id: string }) {
       <canvas
         ref={canvasRef}
         className="h-screen w-screen"
+        style={{ cursor: 'url(/pencil.svg) 4 4, crosshair' }}
         onMouseDown={onPointerDown}
         onMouseUp={onPointerUp}
         onMouseMove={onPointerMove}
