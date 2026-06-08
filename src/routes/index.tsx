@@ -277,7 +277,14 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
 
   useEffect(() => {
     load().catch(console.error)
+
+    function onBeforeUnload() {
+      ncRef.current?.close()
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+
     return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload)
       ncRef.current?.close()
       ncRef.current = null
     }

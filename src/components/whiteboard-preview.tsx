@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { NatsConnection } from '@nats-io/nats-core'
+import { nanos } from '@nats-io/nats-core'
 import { jetstream } from '@nats-io/jetstream'
 
 interface Point {
@@ -44,7 +45,9 @@ export function WhiteboardPreview({ id, nc }: { id: string; nc: NatsConnection }
 
       let consumer
       try {
-        consumer = await js.consumers.get(streamName)
+        consumer = await js.consumers.get(streamName, {
+          inactive_threshold: nanos(10 * 1000),
+        })
       } catch {
         return
       }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import type { NatsConnection } from '@nats-io/nats-core'
+import { nanos } from '@nats-io/nats-core'
 import { connectNats, ensureStream, rollupHeaders } from '#/lib/nats'
 import { jetstream } from '@nats-io/jetstream'
 
@@ -42,6 +43,7 @@ export function Whiteboard({ id }: { id: string }) {
   const [thickness, setThickness] = useState(THICKNESSES[0])
   const [connected, setConnected] = useState(false)
   const [ready, setReady] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const colorRef = useRef(color)
   const thicknessRef = useRef(thickness)
   colorRef.current = color
@@ -99,7 +101,9 @@ export function Whiteboard({ id }: { id: string }) {
       await ensureStream(nc, streamName, [`${subject}.>`])
 
       const js = jetstream(nc)
-      const consumer = await js.consumers.get(streamName)
+      const consumer = await js.consumers.get(streamName, {
+        inactive_threshold: nanos(10 * 1000),
+      })
       const info = await consumer.info()
       if (info.num_pending === 0) setReady(true)
 
@@ -119,10 +123,19 @@ export function Whiteboard({ id }: { id: string }) {
       }
     }
 
-    connect().catch(console.error)
+    connect().catch((err) => {
+      console.error(err)
+      setError(err instanceof Error ? err.message : 'Failed to connect')
+    })
+
+    function onBeforeUnload() {
+      ncRef.current?.close()
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
 
     return () => {
       cancelled = true
+      window.removeEventListener('beforeunload', onBeforeUnload)
       ncRef.current?.close()
       ncRef.current = null
       setConnected(false)
@@ -152,9 +165,11 @@ export function Whiteboard({ id }: { id: string }) {
     ctxRef.current = ctx
 
     function resize() {
-      if (!canvas) return
+      if (!canvas || !ctx) return
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
       canvas.width = window.innerWidth
       canvas.height = window.innerHeight
+      ctx.putImageData(imageData, 0, 0)
     }
     resize()
     window.addEventListener('resize', resize)
@@ -220,10 +235,27 @@ export function Whiteboard({ id }: { id: string }) {
     <div className="relative h-screen w-screen overflow-hidden">
       {!ready && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[var(--lagoon)]" />
-          <p className="text-sm text-[var(--sea-ink-soft)]">
-            {connected ? 'Loading whiteboard...' : 'Connecting...'}
-          </p>
+          {error ? (
+            <>
+              <p className="max-w-md text-center text-sm text-red-500">{error}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="rounded-lg bg-[var(--lagoon-deep)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--lagoon)]"
+              >
+                Retry
+              </button>
+              <Link to="/" className="text-sm text-[var(--sea-ink-soft)] hover:text-[var(--sea-ink)]">
+                Back to whiteboards
+              </Link>
+            </>
+          ) : (
+            <>
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[var(--lagoon)]" />
+              <p className="text-sm text-[var(--sea-ink-soft)]">
+                {connected ? 'Loading whiteboard...' : 'Connecting...'}
+              </p>
+            </>
+          )}
         </div>
       )}
 
@@ -277,17 +309,25 @@ export function Whiteboard({ id }: { id: string }) {
         </div>
       </div>
 
-      <canvas
-        ref={canvasRef}
+      <div
         className="h-screen w-screen"
-        style={{ cursor: 'crosshair' }}
-        onMouseDown={onPointerDown}
-        onMouseUp={onPointerUp}
-        onMouseMove={onPointerMove}
-        onTouchStart={onPointerDown}
-        onTouchEnd={onPointerUp}
-        onTouchMove={onPointerMove}
-      />
+        style={{
+          backgroundImage: 'radial-gradient(circle, #d1d5db 1px, transparent 1px)',
+          backgroundSize: '24px 24px',
+        }}
+      >
+        <canvas
+          ref={canvasRef}
+          className="h-full w-full"
+          style={{ cursor: 'crosshair' }}
+          onMouseDown={onPointerDown}
+          onMouseUp={onPointerUp}
+          onMouseMove={onPointerMove}
+          onTouchStart={onPointerDown}
+          onTouchEnd={onPointerUp}
+          onTouchMove={onPointerMove}
+        />
+      </div>
     </div>
   )
 }
