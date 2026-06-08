@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { NatsConnection } from '@nats-io/nats-core'
+import { connectNats, ensureStream, rollupHeaders } from '#/lib/nats'
+import { jetstream } from '@nats-io/jetstream'
 
 interface Point {
   x: number
@@ -24,19 +27,24 @@ type Message = DrawMessage | ClearMessage
 const COLORS = ['#000000', '#ef4444', '#22c55e', '#3b82f6', '#ffffff']
 const THICKNESSES = [5, 10, 15, 20]
 
-export function Whiteboard({ id: _id }: { id: string }) {
+export function Whiteboard({ id }: { id: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
   const drawingRef = useRef(false)
   const lastRef = useRef<Point>({ x: 0, y: 0 })
   const localIdRef = useRef(Math.random().toString(36).slice(2, 10))
+  const ncRef = useRef<NatsConnection | null>(null)
 
   const [color, setColor] = useState(COLORS[0])
   const [thickness, setThickness] = useState(THICKNESSES[0])
+  const [connected, setConnected] = useState(false)
   const colorRef = useRef(color)
   const thicknessRef = useRef(thickness)
   colorRef.current = color
   thicknessRef.current = thickness
+
+  const subject = `whiteboard.${id}`
+  const streamName = `whiteboard_${id}`
 
   const drawRaw = useCallback((msg: DrawMessage) => {
     const ctx = ctxRef.current
@@ -72,12 +80,55 @@ export function Whiteboard({ id: _id }: { id: string }) {
     [drawRaw],
   )
 
-  // TODO: wire up NATS subscription and call handleMessage for incoming messages
-  void handleMessage
+  useEffect(() => {
+    let cancelled = false
 
-  const publish = useCallback((_msg: Message) => {
-    // TODO: publish to NATS
-  }, [])
+    async function connect() {
+      const { nc } = await connectNats()
+      if (cancelled) {
+        await nc.close()
+        return
+      }
+      ncRef.current = nc
+      setConnected(true)
+
+      await ensureStream(nc, streamName, [`${subject}.>`])
+
+      const js = jetstream(nc)
+      const consumer = await js.consumers.get(streamName)
+      const sub = await consumer.consume()
+
+      for await (const m of sub) {
+        if (cancelled) break
+        try {
+          const data = m.json<Message>()
+          handleMessage(data)
+        } catch {
+          // skip malformed messages
+        }
+      }
+    }
+
+    connect().catch(console.error)
+
+    return () => {
+      cancelled = true
+      ncRef.current?.close()
+      ncRef.current = null
+      setConnected(false)
+    }
+  }, [id, subject, streamName, handleMessage])
+
+  const publish = useCallback(
+    (msg: Message) => {
+      const nc = ncRef.current
+      if (!nc) return
+      const opts =
+        msg.type === 'clear' ? { headers: rollupHeaders() } : undefined
+      nc.publish(`${subject}.events`, JSON.stringify(msg), opts)
+    },
+    [subject],
+  )
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -154,7 +205,7 @@ export function Whiteboard({ id: _id }: { id: string }) {
   return (
     <div className="relative h-screen w-screen overflow-hidden">
       <div className="absolute top-0 z-10 w-full">
-        <div className="flex gap-3 p-4">
+        <div className="flex items-center gap-3 p-4">
           <div className="flex gap-3 border-r border-slate-300 pr-4">
             {COLORS.map((c) => (
               <button
@@ -194,6 +245,10 @@ export function Whiteboard({ id: _id }: { id: string }) {
               />
             </svg>
           </button>
+
+          {!connected && (
+            <span className="text-sm text-red-500">Connecting to NATS...</span>
+          )}
         </div>
       </div>
 

@@ -7,3 +7,4 @@ dist-ssr
 .tanstack
 __unconfig*
 /adrs
+/server/sygma

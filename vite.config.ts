@@ -5,4 +5,8 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   resolve: { tsconfigPaths: true },
   plugins: [tailwindcss(), viteReact()],
+  build: {
+    outDir: 'server/dist',
+    emptyOutDir: true,
+  },
 })
