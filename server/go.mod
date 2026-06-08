@@ -2,7 +2,10 @@ module github.com/synadia-labs/synadia-whiteboard/server
 
 go 1.26.2
 
-require github.com/nats-io/nats.go v1.52.0
+require (
+	github.com/nats-io/nats.go v1.52.0
+	github.com/synadia-io/control-plane-sdk-go v0.7.0
+)
 
 require (
 	github.com/klauspost/compress v1.18.5 // indirect

@@ -8,3 +8,5 @@ dist-ssr
 __unconfig*
 /adrs
 /server/sygma
+/server/server
+/server/tmp
