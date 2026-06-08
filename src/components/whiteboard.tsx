@@ -123,9 +123,13 @@ export function Whiteboard({ id }: { id: string }) {
     (msg: Message) => {
       const nc = ncRef.current
       if (!nc) return
-      const opts =
-        msg.type === 'clear' ? { headers: rollupHeaders() } : undefined
-      nc.publish(`${subject}.events`, JSON.stringify(msg), opts)
+      try {
+        const opts =
+          msg.type === 'clear' ? { headers: rollupHeaders() } : undefined
+        nc.publish(`${subject}.events`, JSON.stringify(msg), opts)
+      } catch (err) {
+        console.error('publish error:', err, 'payload size:', JSON.stringify(msg).length)
+      }
     },
     [subject],
   )

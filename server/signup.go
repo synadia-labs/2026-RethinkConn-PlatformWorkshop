@@ -14,7 +14,6 @@ import (
 type signupHandler struct {
 	cpBaseURL          string
 	serviceAccountNKey string
-	jwtCookieName      string
 }
 
 type signupRequest struct {
@@ -26,6 +25,7 @@ type signupRequest struct {
 type signupResponse struct {
 	AccountID        string `json:"account_id"`
 	AccountPublicKey string `json:"account_public_key"`
+	Creds            string `json:"creds"`
 }
 
 func (h *signupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +34,7 @@ func (h *signupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	log.Printf("signup: request: token=%s... team_id=%q cp_url=%q", req.Token[:min(len(req.Token), 10)], req.TeamID, req.CpURL)
 	if req.Token == "" {
 		http.Error(w, "token is required", http.StatusBadRequest)
 		return
@@ -80,25 +81,17 @@ func (h *signupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bearerJWT, err := h.downloadBearerJWT(ctx, client, userID)
+	creds, err := h.downloadCreds(ctx, client, userID)
 	if err != nil {
-		log.Printf("signup: download bearer JWT: %s", apiError(err))
-		http.Error(w, fmt.Sprintf("failed to download bearer JWT: %v", err), http.StatusInternalServerError)
+		log.Printf("signup: download creds: %s", apiError(err))
+		http.Error(w, fmt.Sprintf("failed to download creds: %v", err), http.StatusInternalServerError)
 		return
 	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     h.jwtCookieName,
-		Value:    bearerJWT,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Secure:   false, // TODO: set true in production
-	})
 
 	resp := signupResponse{
 		AccountID:        account.Id,
 		AccountPublicKey: ptrVal(account.AccountPublicKey),
+		Creds:            creds,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -165,9 +158,10 @@ func (h *signupHandler) createAccount(ctx context.Context, client *syncp.APIClie
 					},
 					TieredLimits: map[string]syncp.JetStreamLimits{
 						"R1": {
-							DiskStorage: syncp.Ptr(int64(100 * 1024 * 1024)), // 100 MiB
-							Streams:     syncp.Ptr(int64(2)),
-							Consumer:    syncp.Ptr(int64(2)),
+							DiskStorage:        syncp.Ptr(int64(100 * 1024 * 1024)), // 100 MiB
+							DiskMaxStreamBytes: syncp.Ptr(int64(100 * 1024 * 1024)), // 100 MiB per stream
+							Streams:            syncp.Ptr(int64(2)),
+							Consumer:           syncp.Ptr(int64(2)),
 						},
 					},
 				},
@@ -196,24 +190,14 @@ func (h *signupHandler) createServiceImport(ctx context.Context, client *syncp.A
 }
 
 func (h *signupHandler) createBrowserUser(ctx context.Context, client *syncp.APIClient, accountID string) (jwt string, userID string, err error) {
-	skGroups, _, err := client.AccountAPI.ListAccountSkGroup(ctx, accountID).Execute()
+	skGroup, _, err := client.AccountAPI.CreateAccountSkGroup(ctx, accountID).
+		SigningKeyGroupCreateRequest(syncp.SigningKeyGroupCreateRequest{
+			Name: "sygma-browser",
+		}).Execute()
 	if err != nil {
-		return "", "", fmt.Errorf("list signing key groups: %w", err)
+		return "", "", fmt.Errorf("create signing key group: %w", err)
 	}
-
-	var skGroupID string
-	if len(skGroups.Items) > 0 {
-		skGroupID = skGroups.Items[0].Id
-	} else {
-		skGroup, _, err := client.AccountAPI.CreateAccountSkGroup(ctx, accountID).
-			SigningKeyGroupCreateRequest(syncp.SigningKeyGroupCreateRequest{
-				Name: "sygma-browser",
-			}).Execute()
-		if err != nil {
-			return "", "", fmt.Errorf("create signing key group: %w", err)
-		}
-		skGroupID = skGroup.Id
-	}
+	skGroupID := skGroup.Id
 
 	user, _, err := client.AccountAPI.CreateUser(ctx, accountID).
 		NatsUserCreateRequest(syncp.NatsUserCreateRequest{
@@ -222,6 +206,9 @@ func (h *signupHandler) createBrowserUser(ctx context.Context, client *syncp.API
 			JwtSettings: &syncp.NatsCreateUserJwtSettings{
 				BearerToken:            syncp.Ptr(true),
 				AllowedConnectionTypes: []string{"WEBSOCKET"},
+				Subs:                   syncp.Ptr(int64(-1)),
+				Payload:                syncp.Ptr(int64(-1)),
+				Data:                   syncp.Ptr(int64(-1)),
 			},
 		}).Execute()
 	if err != nil {
@@ -231,12 +218,12 @@ func (h *signupHandler) createBrowserUser(ctx context.Context, client *syncp.API
 	return user.Jwt, user.Id, nil
 }
 
-func (h *signupHandler) downloadBearerJWT(ctx context.Context, client *syncp.APIClient, userID string) (string, error) {
-	jwt, _, err := client.NatsUserAPI.DownloadNatsUserBearerJwt(ctx, userID).Execute()
+func (h *signupHandler) downloadCreds(ctx context.Context, client *syncp.APIClient, userID string) (string, error) {
+	creds, _, err := client.NatsUserAPI.DownloadNatsUserCreds(ctx, userID).Execute()
 	if err != nil {
-		return "", fmt.Errorf("download bearer JWT: %w", err)
+		return "", fmt.Errorf("download creds: %w", err)
 	}
-	return jwt, nil
+	return creds, nil
 }
 
 func apiError(err error) string {

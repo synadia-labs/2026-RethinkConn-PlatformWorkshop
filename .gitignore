@@ -10,3 +10,4 @@ __unconfig*
 /server/sygma
 /server/server
 /server/tmp
+*.creds

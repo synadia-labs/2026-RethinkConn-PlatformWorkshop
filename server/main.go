@@ -15,17 +15,20 @@ var staticFS embed.FS
 
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
-	natsURL := flag.String("nats", nats.DefaultURL, "NATS server URL")
+	natsURL := flag.String("nats", "nats://nats.ngs.synadia-test.com:4222", "NATS server URL")
+	natsCreds := flag.String("nats-creds", "", "Path to NATS credentials file")
 	cpBaseURL := flag.String("cp-url", "https://cloud.synadia.com", "Synadia Control Plane base URL")
 	serviceAccountNKey := flag.String("service-account-nkey", "", "Public NKey of the service account (for imports)")
-	jwtCookieName := flag.String("jwt-cookie", "nats_jwt", "Name of the HTTP cookie for the NATS bearer JWT")
 	flag.Parse()
 
+	if *natsCreds == "" {
+		log.Fatal("-nats-creds is required")
+	}
 	if *serviceAccountNKey == "" {
 		log.Fatal("-service-account-nkey is required")
 	}
 
-	nc, err := nats.Connect(*natsURL)
+	nc, err := nats.Connect(*natsURL, nats.UserCredentials(*natsCreds), nats.Name("sygma-server"))
 	if err != nil {
 		log.Fatalf("failed to connect to NATS: %v", err)
 	}
@@ -35,7 +38,6 @@ func main() {
 	signup := &signupHandler{
 		cpBaseURL:          *cpBaseURL,
 		serviceAccountNKey: *serviceAccountNKey,
-		jwtCookieName:      *jwtCookieName,
 	}
 
 	mux := http.NewServeMux()

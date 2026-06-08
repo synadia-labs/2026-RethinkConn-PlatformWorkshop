@@ -11,6 +11,7 @@ function Home() {
   function signOut() {
     localStorage.removeItem('sygma_account_id')
     localStorage.removeItem('sygma_account_nkey')
+    localStorage.removeItem('sygma_creds')
     setSignedUp(false)
   }
 
@@ -52,6 +53,7 @@ function SignupForm({ onSuccess }: { onSuccess: () => void }) {
       const data = await res.json()
       localStorage.setItem('sygma_account_id', data.account_id)
       localStorage.setItem('sygma_account_nkey', data.account_public_key)
+      localStorage.setItem('sygma_creds', data.creds)
       onSuccess()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed')
