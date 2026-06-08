@@ -36,10 +36,12 @@ export function Whiteboard({ id }: { id: string }) {
   const lastRef = useRef<Point>({ x: 0, y: 0 })
   const localIdRef = useRef(Math.random().toString(36).slice(2, 10))
   const ncRef = useRef<NatsConnection | null>(null)
+  const readyRef = useRef(false)
 
   const [color, setColor] = useState(COLORS[0])
   const [thickness, setThickness] = useState(THICKNESSES[0])
   const [connected, setConnected] = useState(false)
+  const [ready, setReady] = useState(false)
   const colorRef = useRef(color)
   const thicknessRef = useRef(thickness)
   colorRef.current = color
@@ -98,8 +100,10 @@ export function Whiteboard({ id }: { id: string }) {
 
       const js = jetstream(nc)
       const consumer = await js.consumers.get(streamName)
-      const sub = await consumer.consume()
+      const info = await consumer.info()
+      if (info.num_pending === 0) setReady(true)
 
+      const sub = await consumer.consume()
       for await (const m of sub) {
         if (cancelled) break
         try {
@@ -107,6 +111,10 @@ export function Whiteboard({ id }: { id: string }) {
           handleMessage(data)
         } catch {
           // skip malformed messages
+        }
+        if (!readyRef.current && m.info.pending === 0) {
+          setReady(true)
+          readyRef.current = true
         }
       }
     }
@@ -210,6 +218,15 @@ export function Whiteboard({ id }: { id: string }) {
 
   return (
     <div className="relative h-screen w-screen overflow-hidden">
+      {!ready && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[var(--lagoon)]" />
+          <p className="text-sm text-[var(--sea-ink-soft)]">
+            {connected ? 'Loading whiteboard...' : 'Connecting...'}
+          </p>
+        </div>
+      )}
+
       <div className="absolute top-0 z-10 w-full">
         <div className="flex items-center gap-3 p-4">
           <Link
@@ -257,17 +274,13 @@ export function Whiteboard({ id }: { id: string }) {
               />
             </svg>
           </button>
-
-          {!connected && (
-            <span className="text-sm text-red-500">Connecting to NATS...</span>
-          )}
         </div>
       </div>
 
       <canvas
         ref={canvasRef}
         className="h-screen w-screen"
-        style={{ cursor: 'url(/pencil.svg) 4 4, crosshair' }}
+        style={{ cursor: 'crosshair' }}
         onMouseDown={onPointerDown}
         onMouseUp={onPointerUp}
         onMouseMove={onPointerMove}
