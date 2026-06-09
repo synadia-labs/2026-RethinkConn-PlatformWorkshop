@@ -230,6 +230,7 @@ function ShareModal({
               <input
                 id="recipientName"
                 type="text"
+                autoComplete="off"
                 value={recipientName}
                 onChange={(e) => setRecipientName(e.target.value)}
                 placeholder="Enter their name"
