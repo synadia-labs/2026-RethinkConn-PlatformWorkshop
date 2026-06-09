@@ -19,13 +19,13 @@ export const Route = createFileRoute('/')({ component: Home })
 
 function Home() {
   const [signedUp, setSignedUp] = useState(
-    () => localStorage.getItem('sygma_account_id') !== null,
+    () => sessionStorage.getItem('sygma_account_id') !== null,
   )
 
   function signOut() {
-    localStorage.removeItem('sygma_account_id')
-    localStorage.removeItem('sygma_name')
-    localStorage.removeItem('sygma_creds')
+    sessionStorage.removeItem('sygma_account_id')
+    sessionStorage.removeItem('sygma_name')
+    sessionStorage.removeItem('sygma_creds')
     setSignedUp(false)
   }
 
@@ -59,9 +59,9 @@ function SignupForm({ onSuccess }: { onSuccess: () => void }) {
       }
 
       const data = await res.json()
-      localStorage.setItem('sygma_account_id', data.account_id)
-      localStorage.setItem('sygma_name', name)
-      localStorage.setItem('sygma_creds', data.creds)
+      sessionStorage.setItem('sygma_account_id', data.account_id)
+      sessionStorage.setItem('sygma_name', name)
+      sessionStorage.setItem('sygma_creds', data.creds)
       onSuccess()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed')
@@ -156,7 +156,7 @@ function ShareModal({
 
     try {
       const payload = JSON.stringify({
-        owner_account_id: localStorage.getItem('sygma_account_id'),
+        owner_account_id: sessionStorage.getItem('sygma_account_id'),
         recipient_name: recipientName.trim(),
         board_id: board.id,
       })
@@ -484,7 +484,7 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
         </h1>
         <div className="flex items-center gap-3">
           <span className="text-sm text-[var(--sea-ink-soft)]">
-            {localStorage.getItem('sygma_name')}
+            {sessionStorage.getItem('sygma_name')}
           </span>
           <button
             onClick={onSignOut}

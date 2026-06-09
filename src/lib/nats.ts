@@ -16,7 +16,7 @@ export interface NatsContext {
 }
 
 export async function connectNats(): Promise<NatsContext> {
-  const creds = localStorage.getItem('sygma_creds')
+  const creds = sessionStorage.getItem('sygma_creds')
   if (!creds) {
     throw new Error('Not signed in')
   }
@@ -80,7 +80,7 @@ export async function listWhiteboards(
 export async function listSharedWhiteboards(
   nc: NatsConnection,
 ): Promise<WhiteboardInfo[]> {
-  const accountId = localStorage.getItem('sygma_account_id')
+  const accountId = sessionStorage.getItem('sygma_account_id')
   if (!accountId) return []
   const payload = JSON.stringify({ account_id: accountId })
   const resp = await nc.request('sygma.whiteboard.list-shared', payload, {
@@ -123,7 +123,7 @@ export async function deleteWhiteboard(
   nc: NatsConnection,
   id: string,
 ): Promise<void> {
-  const accountId = localStorage.getItem('sygma_account_id')
+  const accountId = sessionStorage.getItem('sygma_account_id')
   if (accountId) {
     const payload = JSON.stringify({ account_id: accountId, board_id: id })
     await nc.request('sygma.whiteboard.delete', payload, { timeout: 15_000 }).catch(() => {})
@@ -136,7 +136,7 @@ export async function unshareWhiteboard(
   nc: NatsConnection,
   id: string,
 ): Promise<void> {
-  const accountId = localStorage.getItem('sygma_account_id')
+  const accountId = sessionStorage.getItem('sygma_account_id')
   if (!accountId) throw new Error('Not signed in')
   const payload = JSON.stringify({ account_id: accountId, board_id: id })
   const resp = await nc.request('sygma.whiteboard.unshare', payload, { timeout: 10_000 })
