@@ -68,6 +68,9 @@ func main() {
 	if err := g.AddEndpoint("list-shared", micro.HandlerFunc(share.handleListShared)); err != nil {
 		log.Fatalf("failed to add list-shared endpoint: %v", err)
 	}
+	if err := g.AddEndpoint("unshare", micro.HandlerFunc(share.handleUnshare)); err != nil {
+		log.Fatalf("failed to add unshare endpoint: %v", err)
+	}
 	log.Print("sygma micro service started")
 
 	signup := &signupHandler{

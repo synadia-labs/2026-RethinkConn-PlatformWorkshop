@@ -127,6 +127,18 @@ export async function deleteWhiteboard(
   await jsm.streams.delete(STREAM_PREFIX + id)
 }
 
+export async function unshareWhiteboard(
+  nc: NatsConnection,
+  id: string,
+): Promise<void> {
+  const accountId = localStorage.getItem('sygma_account_id')
+  if (!accountId) throw new Error('Not signed in')
+  const payload = JSON.stringify({ account_id: accountId, board_id: id })
+  const resp = await nc.request('sygma.whiteboard.unshare', payload, { timeout: 10_000 })
+  const data = JSON.parse(new TextDecoder().decode(resp.data)) as { ok?: boolean; error?: string }
+  if (data.error) throw new Error(data.error)
+}
+
 export async function ensureStream(
   nc: NatsConnection,
   name: string,

@@ -8,6 +8,7 @@ import {
   listSharedWhiteboards,
   listWhiteboards,
   renameWhiteboard,
+  unshareWhiteboard,
 } from '#/lib/nats'
 import type { NatsConnection } from '@nats-io/nats-core'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
@@ -346,19 +347,24 @@ function BoardCard({
             </p>
           )}
         </div>
-        {!board.shared && (
         <div className="ml-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-          <button
-            onClick={() => setShowShare(true)}
-            className="rounded p-1 text-[var(--sea-ink-soft)] hover:text-[var(--lagoon)]"
-          >
-            <Share2 size={14} />
-          </button>
+          {!board.shared && (
+            <button
+              onClick={() => setShowShare(true)}
+              className="rounded p-1 text-[var(--sea-ink-soft)] hover:text-[var(--lagoon)]"
+            >
+              <Share2 size={14} />
+            </button>
+          )}
           <button
             onClick={async () => {
               if (!nc) return
               try {
-                await deleteWhiteboard(nc, board.id)
+                if (board.shared) {
+                  await unshareWhiteboard(nc, board.id)
+                } else {
+                  await deleteWhiteboard(nc, board.id)
+                }
                 onDelete(board.id)
               } catch (err) {
                 console.error('delete whiteboard:', err)
@@ -369,7 +375,6 @@ function BoardCard({
             <Trash2 size={14} />
           </button>
         </div>
-        )}
       </div>
       {showShare && (
         <ShareModal board={board} nc={nc} onClose={() => setShowShare(false)} />
