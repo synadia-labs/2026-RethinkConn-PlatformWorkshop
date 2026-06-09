@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { NatsConnection } from '@nats-io/nats-core'
+import { nuid } from '@nats-io/nats-core'
 import { jetstream } from '@nats-io/jetstream'
 
 interface Point {
@@ -24,7 +25,7 @@ type Message = DrawMessage | ClearMessage
 const PREVIEW_W = 400
 const PREVIEW_H = 280
 
-export function WhiteboardPreview({ id, nc }: { id: string; nc: NatsConnection }) {
+export function WhiteboardPreview({ id, nc, jsPrefix, deliverPrefix }: { id: string; nc: NatsConnection; jsPrefix?: string; deliverPrefix?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -38,42 +39,77 @@ export function WhiteboardPreview({ id, nc }: { id: string; nc: NatsConnection }
 
     let cancelled = false
 
+    function renderMessage(data: Message) {
+      if (data.type === 'draw') {
+        const scaleX = PREVIEW_W / window.innerWidth
+        const scaleY = PREVIEW_H / window.innerHeight
+        ctx!.beginPath()
+        ctx!.lineWidth = data.thickness * Math.min(scaleX, scaleY)
+        ctx!.lineCap = 'round'
+        ctx!.lineJoin = 'round'
+        ctx!.strokeStyle = data.color
+        ctx!.moveTo(data.from.x * scaleX, data.from.y * scaleY)
+        ctx!.lineTo(data.to.x * scaleX, data.to.y * scaleY)
+        ctx!.stroke()
+      } else {
+        ctx!.clearRect(0, 0, PREVIEW_W, PREVIEW_H)
+      }
+    }
+
     async function replay() {
-      const js = jetstream(nc)
+      const shared = !!jsPrefix
       const streamName = `whiteboard_${id}`
 
-      let consumer
-      try {
-        consumer = await js.consumers.get(streamName, {
-          inactive_threshold: 10_000,
-        })
-      } catch {
-        return
-      }
-
-      const batch = await consumer.fetch({ max_messages: 4096, expires: 3000 })
-      for await (const m of batch) {
-        if (cancelled) break
-        try {
-          const data = m.json<Message>()
-          if (data.type === 'draw') {
-            const scaleX = PREVIEW_W / window.innerWidth
-            const scaleY = PREVIEW_H / window.innerHeight
-            ctx!.beginPath()
-            ctx!.lineWidth = data.thickness * Math.min(scaleX, scaleY)
-            ctx!.lineCap = 'round'
-            ctx!.lineJoin = 'round'
-            ctx!.strokeStyle = data.color
-            ctx!.moveTo(data.from.x * scaleX, data.from.y * scaleY)
-            ctx!.lineTo(data.to.x * scaleX, data.to.y * scaleY)
-            ctx!.stroke()
-          } else {
-            ctx!.clearRect(0, 0, PREVIEW_W, PREVIEW_H)
-          }
-        } catch {
-          // skip malformed
+      if (shared) {
+        const deliverSubject = `${deliverPrefix}.${nuid.next()}`
+        const consumerName = nuid.next()
+        const createSubject = `${jsPrefix}.API.CONSUMER.CREATE.${streamName}.${consumerName}`
+        const config = {
+          stream_name: streamName,
+          config: {
+            name: consumerName,
+            deliver_subject: deliverSubject,
+            deliver_policy: 'all',
+            ack_policy: 'none',
+            inactive_threshold: 10_000_000_000,
+            num_replicas: 1,
+            mem_storage: true,
+          },
         }
-        m.ack()
+        const resp = await nc.request(createSubject, JSON.stringify(config), { timeout: 10_000 })
+        const ci = JSON.parse(new TextDecoder().decode(resp.data))
+        if (ci.error) return
+
+        const sub = nc.subscribe(deliverSubject)
+        for await (const m of sub) {
+          if (cancelled) break
+          try {
+            renderMessage(JSON.parse(new TextDecoder().decode(m.data)))
+          } catch {
+            // skip malformed
+          }
+        }
+      } else {
+        const js = jetstream(nc)
+        let consumer
+        try {
+          consumer = await js.consumers.get(streamName, {
+            inactive_threshold: 10_000,
+          })
+        } catch {
+          return
+        }
+
+        const batch = await consumer.fetch({ max_messages: 4096, expires: 3000 })
+        for await (const m of batch) {
+          if (cancelled) break
+          try {
+            renderMessage(m.json<Message>())
+          } catch {
+            // skip malformed
+          }
+          m.ack()
+        }
       }
     }
 

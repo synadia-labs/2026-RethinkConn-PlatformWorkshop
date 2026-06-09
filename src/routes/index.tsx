@@ -294,9 +294,10 @@ function BoardCard({
       <Link
         to="/board/$id"
         params={{ id: board.id }}
+        search={{ jsPrefix: board.jsPrefix, deliverPrefix: board.deliverPrefix }}
         className="block aspect-[10/7] w-full overflow-hidden bg-white"
       >
-        {nc && <WhiteboardPreview id={board.id} nc={nc} />}
+        {nc && <WhiteboardPreview id={board.id} nc={nc} jsPrefix={board.jsPrefix} deliverPrefix={board.deliverPrefix} />}
       </Link>
       <div className="flex items-start justify-between border-t border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3">
         <div className="min-w-0 flex-1">
@@ -446,7 +447,7 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
       setImportName('')
       await nc.close()
       ncRef.current = null
-      navigate({ to: '/board/$id', params: { id } })
+      navigate({ to: '/board/$id', params: { id }, search: { jsPrefix: undefined, deliverPrefix: undefined } })
     } catch (err) {
       console.error('import whiteboard:', err)
       setImporting(false)
@@ -462,7 +463,7 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
       const board = await createWhiteboard(nc, name)
       await nc.close()
       ncRef.current = null
-      navigate({ to: '/board/$id', params: { id: board.id } })
+      navigate({ to: '/board/$id', params: { id: board.id }, search: { jsPrefix: undefined, deliverPrefix: undefined } })
     } catch (err) {
       console.error('create whiteboard:', err)
       setCreating(false)

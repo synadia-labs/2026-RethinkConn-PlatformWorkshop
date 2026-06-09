@@ -4,6 +4,7 @@ import { ArrowLeft, Pencil, Eraser, Trash2 } from 'lucide-react'
 import type { NatsConnection } from '@nats-io/nats-core'
 import { connectNats, ensureStream, rollupHeaders } from '#/lib/nats'
 import { jetstream } from '@nats-io/jetstream'
+import { nuid } from '@nats-io/nats-core'
 
 interface Point {
   x: number
@@ -29,7 +30,7 @@ type Message = DrawMessage | ClearMessage
 const COLORS = ['#000000', '#ef4444', '#22c55e', '#3b82f6', '#ffffff']
 const THICKNESSES = [5, 10, 15, 20]
 
-export function Whiteboard({ id }: { id: string }) {
+export function Whiteboard({ id, jsPrefix, deliverPrefix }: { id: string; jsPrefix?: string; deliverPrefix?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
   const drawingRef = useRef(false)
@@ -97,27 +98,69 @@ export function Whiteboard({ id }: { id: string }) {
       ncRef.current = nc
       setConnected(true)
 
-      await ensureStream(nc, streamName, [`${subject}.>`])
+      const shared = !!jsPrefix
+      if (!shared) {
+        await ensureStream(nc, streamName, [`${subject}.>`])
+      }
 
-      const js = jetstream(nc)
-      const consumer = await js.consumers.get(streamName, {
-        inactive_threshold: 10_000,
-      })
-      const info = await consumer.info()
-      if (info.num_pending === 0) setReady(true)
-
-      const sub = await consumer.consume()
-      for await (const m of sub) {
-        if (cancelled) break
-        try {
-          const data = m.json<Message>()
-          handleMessage(data)
-        } catch {
-          // skip malformed messages
+      if (shared) {
+        const deliverSubject = `${deliverPrefix}.${nuid.next()}`
+        const consumerName = nuid.next()
+        const createSubject = `${jsPrefix}.API.CONSUMER.CREATE.${streamName}.${consumerName}`
+        const config = {
+          stream_name: streamName,
+          config: {
+            name: consumerName,
+            deliver_subject: deliverSubject,
+            deliver_policy: 'all',
+            ack_policy: 'none',
+            inactive_threshold: 10_000_000_000,
+            num_replicas: 1,
+            mem_storage: true,
+          },
         }
-        if (!readyRef.current && m.info.pending === 0) {
-          setReady(true)
-          readyRef.current = true
+        const resp = await nc.request(createSubject, JSON.stringify(config), { timeout: 10_000 })
+        const ci = JSON.parse(new TextDecoder().decode(resp.data))
+        if (ci.error) throw new Error(ci.error.description || ci.error.code)
+
+        const sub = nc.subscribe(deliverSubject)
+        for await (const m of sub) {
+          if (cancelled) break
+          try {
+            const data = JSON.parse(new TextDecoder().decode(m.data)) as Message
+            handleMessage(data)
+          } catch {
+            // skip malformed
+          }
+          if (!readyRef.current) {
+            const pending = parseInt(m.headers?.get('Nats-Pending-Messages') || '0', 10)
+            if (pending === 0) {
+              setReady(true)
+              readyRef.current = true
+            }
+          }
+        }
+      } else {
+        const js = jetstream(nc)
+        const consumer = await js.consumers.get(streamName, {
+          inactive_threshold: 10_000,
+        })
+        const info = await consumer.info()
+        if (info.num_pending === 0) setReady(true)
+
+        const sub = await consumer.consume()
+        for await (const m of sub) {
+          if (cancelled) break
+          try {
+            const data = m.json<Message>()
+            handleMessage(data)
+          } catch {
+            // skip malformed messages
+          }
+          if (!readyRef.current && m.info.pending === 0) {
+            setReady(true)
+            readyRef.current = true
+          }
         }
       }
     }
@@ -139,7 +182,7 @@ export function Whiteboard({ id }: { id: string }) {
       ncRef.current = null
       setConnected(false)
     }
-  }, [id, subject, streamName, handleMessage])
+  }, [id, subject, streamName, jsPrefix, deliverPrefix, handleMessage])
 
   const publish = useCallback(
     (msg: Message) => {

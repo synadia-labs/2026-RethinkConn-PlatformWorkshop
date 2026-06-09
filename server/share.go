@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -35,9 +36,10 @@ type listSharedRequest struct {
 }
 
 type sharedBoard struct {
-	StreamName string `json:"stream_name"`
-	BoardName  string `json:"board_name"`
-	JsPrefix   string `json:"js_prefix"`
+	StreamName    string `json:"stream_name"`
+	BoardName     string `json:"board_name"`
+	JsPrefix      string `json:"js_prefix"`
+	DeliverPrefix string `json:"deliver_prefix"`
 }
 
 type listSharedResponse struct {
@@ -102,6 +104,19 @@ func (s *shareService) handleShare(req micro.Request) {
 		return
 	}
 
+	eventSubject := fmt.Sprintf("whiteboard.%s.events", r.BoardID)
+	if err := s.ensureSubjectExport(ctx, client, r.OwnerAccountID, eventSubject); err != nil {
+		log.Printf("share: create subject export: %s", apiError(err))
+		req.RespondJSON(shareResponse{Error: fmt.Sprintf("failed to create subject export: %v", err)})
+		return
+	}
+
+	if err := s.ensureSubjectImport(ctx, client, recipientAccountID, ownerNkey, eventSubject); err != nil {
+		log.Printf("share: create subject import: %s", apiError(err))
+		req.RespondJSON(shareResponse{Error: fmt.Sprintf("failed to create subject import: %v", err)})
+		return
+	}
+
 	log.Printf("share: %s shared board %s (stream %s) with %s", r.OwnerAccountID, r.BoardID, streamName, recipientAccountName)
 	req.RespondJSON(shareResponse{
 		OK:            true,
@@ -146,9 +161,10 @@ func (s *shareService) handleListShared(req micro.Request) {
 			}
 		}
 		boards = append(boards, sharedBoard{
-			StreamName: imp.StreamName,
-			BoardName:  boardName,
-			JsPrefix:   imp.JsSubjectPrefix,
+			StreamName:    imp.StreamName,
+			BoardName:     boardName,
+			JsPrefix:      imp.JsSubjectPrefix,
+			DeliverPrefix: imp.DeliverSubject,
 		})
 	}
 
@@ -207,6 +223,46 @@ func (s *shareService) getStreamDescription(ctx context.Context, client *syncp.A
 		}
 	}
 	return "", fmt.Errorf("stream %q not found", streamName)
+}
+
+func (s *shareService) ensureSubjectExport(ctx context.Context, client *syncp.APIClient, accountID string, subject string) error {
+	serviceType := syncp.EXPORTTYPE_SERVICE
+	_, resp, err := client.AccountAPI.CreateSubjectExport(ctx, accountID).
+		SubjectExportCreateRequest(syncp.SubjectExportCreateRequest{
+			JwtSettings: syncp.Export{
+				Subject: syncp.Ptr(subject),
+				Type:    &serviceType,
+			},
+		}).Execute()
+	if err != nil && !isAlreadyExists(err) && (resp == nil || resp.StatusCode >= 300) {
+		return fmt.Errorf("create subject export: %w", err)
+	}
+	return nil
+}
+
+func (s *shareService) ensureSubjectImport(ctx context.Context, client *syncp.APIClient, accountID string, sourceNkey string, subject string) error {
+	serviceType := syncp.EXPORTTYPE_SERVICE
+	_, resp, err := client.AccountAPI.CreateSubjectImport(ctx, accountID).
+		SubjectImportCreateRequest(syncp.SubjectImportCreateRequest{
+			JwtSettings: syncp.Import{
+				Account: &sourceNkey,
+				Subject: syncp.Ptr(subject),
+				Type:    &serviceType,
+			},
+		}).Execute()
+	if err != nil && !isAlreadyExists(err) && (resp == nil || resp.StatusCode >= 300) {
+		return fmt.Errorf("create subject import: %w", err)
+	}
+	return nil
+}
+
+func isAlreadyExists(err error) bool {
+	var apiErr *syncp.GenericOpenAPIError
+	if errors.As(err, &apiErr) {
+		body := string(apiErr.Body())
+		return strings.Contains(body, "already exported") || strings.Contains(body, "already imported")
+	}
+	return false
 }
 
 func (s *shareService) ensureStreamExport(ctx context.Context, client *syncp.APIClient, accountID string, streamName string) (*syncp.StreamExportViewResponse, error) {

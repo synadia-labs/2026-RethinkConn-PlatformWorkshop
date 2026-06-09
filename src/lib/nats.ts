@@ -1,7 +1,12 @@
 import type { JetStreamClient } from '@nats-io/jetstream'
 import { jetstream, jetstreamManager } from '@nats-io/jetstream'
 import type { NatsConnection } from '@nats-io/nats-core'
-import { credsAuthenticator, headers, nuid, wsconnect } from '@nats-io/nats-core'
+import {
+  credsAuthenticator,
+  headers,
+  nuid,
+  wsconnect,
+} from '@nats-io/nats-core'
 
 const NGS_WS_URL = 'wss://connect.ngs.synadia-test.com'
 
@@ -19,6 +24,7 @@ export async function connectNats(): Promise<NatsContext> {
     servers: NGS_WS_URL,
     authenticator: credsAuthenticator(new TextEncoder().encode(creds)),
     ignoreClusterUpdates: true,
+    debug: true,
   })
   const js = jetstream(nc)
   return { nc, js }
@@ -30,12 +36,16 @@ export interface WhiteboardInfo {
   lastModified?: string
   shared?: boolean
   jsPrefix?: string
+  deliverPrefix?: string
 }
 
 const STREAM_PREFIX = 'whiteboard_'
 const STREAM_MAX_BYTES = 10 * 1024 * 1024 // 10 MiB per whiteboard
 
-export async function createWhiteboard(nc: NatsConnection, name: string): Promise<WhiteboardInfo> {
+export async function createWhiteboard(
+  nc: NatsConnection,
+  name: string,
+): Promise<WhiteboardInfo> {
   const id = nuid.next()
   const streamName = STREAM_PREFIX + id
   const jsm = await jetstreamManager(nc)
@@ -49,7 +59,9 @@ export async function createWhiteboard(nc: NatsConnection, name: string): Promis
   return { id, name }
 }
 
-export async function listWhiteboards(nc: NatsConnection): Promise<WhiteboardInfo[]> {
+export async function listWhiteboards(
+  nc: NatsConnection,
+): Promise<WhiteboardInfo[]> {
   const jsm = await jetstreamManager(nc)
   const boards: WhiteboardInfo[] = []
   for await (const info of jsm.streams.list()) {
@@ -65,13 +77,22 @@ export async function listWhiteboards(nc: NatsConnection): Promise<WhiteboardInf
   return boards
 }
 
-export async function listSharedWhiteboards(nc: NatsConnection): Promise<WhiteboardInfo[]> {
+export async function listSharedWhiteboards(
+  nc: NatsConnection,
+): Promise<WhiteboardInfo[]> {
   const accountId = localStorage.getItem('sygma_account_id')
   if (!accountId) return []
   const payload = JSON.stringify({ account_id: accountId })
-  const resp = await nc.request('sygma.whiteboard.list-shared', payload, { timeout: 10_000 })
+  const resp = await nc.request('sygma.whiteboard.list-shared', payload, {
+    timeout: 10_000,
+  })
   const data = JSON.parse(new TextDecoder().decode(resp.data)) as {
-    boards?: Array<{ stream_name: string; board_name: string; js_prefix: string }>
+    boards?: Array<{
+      stream_name: string
+      board_name: string
+      js_prefix: string
+      deliver_prefix: string
+    }>
     error?: string
   }
   if (data.error || !data.boards) return []
@@ -82,6 +103,7 @@ export async function listSharedWhiteboards(nc: NatsConnection): Promise<Whitebo
       name: b.board_name || id,
       shared: true,
       jsPrefix: b.js_prefix,
+      deliverPrefix: b.deliver_prefix,
     }
   })
 }
@@ -97,7 +119,10 @@ export async function renameWhiteboard(
   await jsm.streams.update(streamName, { ...info.config, description: name })
 }
 
-export async function deleteWhiteboard(nc: NatsConnection, id: string): Promise<void> {
+export async function deleteWhiteboard(
+  nc: NatsConnection,
+  id: string,
+): Promise<void> {
   const jsm = await jetstreamManager(nc)
   await jsm.streams.delete(STREAM_PREFIX + id)
 }
