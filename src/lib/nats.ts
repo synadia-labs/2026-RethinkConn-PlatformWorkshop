@@ -123,6 +123,11 @@ export async function deleteWhiteboard(
   nc: NatsConnection,
   id: string,
 ): Promise<void> {
+  const accountId = localStorage.getItem('sygma_account_id')
+  if (accountId) {
+    const payload = JSON.stringify({ account_id: accountId, board_id: id })
+    await nc.request('sygma.whiteboard.delete', payload, { timeout: 15_000 }).catch(() => {})
+  }
   const jsm = await jetstreamManager(nc)
   await jsm.streams.delete(STREAM_PREFIX + id)
 }

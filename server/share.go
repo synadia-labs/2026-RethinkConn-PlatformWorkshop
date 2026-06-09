@@ -52,6 +52,11 @@ type unshareRequest struct {
 	BoardID   string `json:"board_id"`
 }
 
+type deleteRequest struct {
+	AccountID string `json:"account_id"`
+	BoardID   string `json:"board_id"`
+}
+
 func (s *shareService) handleShare(req micro.Request) {
 	var r shareRequest
 	if err := json.Unmarshal(req.Data(), &r); err != nil {
@@ -128,6 +133,81 @@ func (s *shareService) handleShare(req micro.Request) {
 		JsPrefix:      streamImport.JsSubjectPrefix,
 		DeliverPrefix: streamImport.DeliverSubject,
 	})
+}
+
+func (s *shareService) handleDelete(req micro.Request) {
+	var r deleteRequest
+	if err := json.Unmarshal(req.Data(), &r); err != nil {
+		req.RespondJSON(shareResponse{Error: "invalid request"})
+		return
+	}
+	if r.AccountID == "" || r.BoardID == "" {
+		req.RespondJSON(shareResponse{Error: "account_id and board_id are required"})
+		return
+	}
+
+	streamName := "whiteboard_" + r.BoardID
+	eventSubject := fmt.Sprintf("whiteboard.%s.events", r.BoardID)
+	ctx := s.cpContext()
+	client := syncp.NewAPIClient(syncp.NewConfiguration())
+
+	// Delete stream export (also removes shares)
+	streamExports, _, err := client.AccountAPI.ListStreamExports(ctx, r.AccountID).Execute()
+	if err == nil {
+		for _, exp := range streamExports.Items {
+			if exp.StreamName == streamName {
+				// Find recipients who have imports and clean them up
+				shares, _, err := client.StreamExportAPI.ListStreamShares(ctx, exp.Id).Execute()
+				if err == nil {
+					for _, sh := range shares.Items {
+						recipientID, err := s.findAccountByNkey(ctx, client, sh.TargetAccountNkeyPublic)
+						if err != nil {
+							continue
+						}
+						s.removeImportsForBoard(ctx, client, recipientID, streamName, eventSubject)
+					}
+				}
+				client.StreamExportAPI.DeleteStreamExport(ctx, exp.Id).Execute()
+				break
+			}
+		}
+	}
+
+	// Delete subject export
+	subjectExports, _, err := client.AccountAPI.ListSubjectExports(ctx, r.AccountID).Execute()
+	if err == nil {
+		for _, exp := range subjectExports.Items {
+			if ptrVal(exp.JwtSettings.Subject) == eventSubject {
+				client.SubjectExportAPI.DeleteSubjectExport(ctx, exp.Id).Execute()
+				break
+			}
+		}
+	}
+
+	log.Printf("delete: cleaned up exports/imports for board %s from account %s", r.BoardID, r.AccountID)
+	req.RespondJSON(shareResponse{OK: true})
+}
+
+func (s *shareService) removeImportsForBoard(ctx context.Context, client *syncp.APIClient, accountID string, streamName string, eventSubject string) {
+	streamImports, _, err := client.AccountAPI.ListStreamImports(ctx, accountID).Execute()
+	if err == nil {
+		for _, imp := range streamImports.Items {
+			if imp.StreamName == streamName {
+				client.StreamImportAPI.DeleteStreamImport(ctx, imp.Id).Execute()
+				break
+			}
+		}
+	}
+
+	subjectImports, _, err := client.AccountAPI.ListSubjectImports(ctx, accountID).Execute()
+	if err == nil {
+		for _, imp := range subjectImports.Items {
+			if ptrVal(imp.JwtSettings.Subject) == eventSubject {
+				client.SubjectImportAPI.DeleteSubjectImport(ctx, imp.Id).Execute()
+				break
+			}
+		}
+	}
 }
 
 func (s *shareService) handleUnshare(req micro.Request) {
