@@ -7,26 +7,29 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/synadia-io/control-plane-sdk-go/syncp"
 )
 
 type signupHandler struct {
 	cpBaseURL          string
+	cpPAT              string
+	systemID           string
 	serviceAccountNKey string
 }
 
 type signupRequest struct {
-	Token string `json:"token"`
-	TeamID string `json:"team_id,omitempty"`
-	CpURL  string `json:"cp_url,omitempty"`
+	Name string `json:"name"`
 }
 
 type signupResponse struct {
-	AccountID        string `json:"account_id"`
-	AccountPublicKey string `json:"account_public_key"`
-	Creds            string `json:"creds"`
+	AccountID string `json:"account_id"`
+	Creds     string `json:"creds"`
 }
+
+var validName = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 func (h *signupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var req signupRequest
@@ -34,34 +37,23 @@ func (h *signupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	log.Printf("signup: request: token=%s... team_id=%q cp_url=%q", req.Token[:min(len(req.Token), 10)], req.TeamID, req.CpURL)
-	if req.Token == "" {
-		http.Error(w, "token is required", http.StatusBadRequest)
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
 		return
 	}
-
-	cpURL := h.cpBaseURL
-	if req.CpURL != "" {
-		cpURL = req.CpURL
+	if !validName.MatchString(req.Name) {
+		http.Error(w, "name must contain only letters, numbers, hyphens, and underscores", http.StatusBadRequest)
+		return
 	}
-	ctx := h.cpContext(r.Context(), req.Token, cpURL)
+	log.Printf("signup: request: name=%q", req.Name)
+
+	ctx := h.cpContext(r.Context())
 	client := syncp.NewAPIClient(syncp.NewConfiguration())
 
-	teamID, err := h.resolveTeam(ctx, client, req.TeamID)
-	if err != nil {
-		log.Printf("signup: resolve team: %s", apiError(err))
-		http.Error(w, fmt.Sprintf("failed to resolve team: %v", err), http.StatusBadRequest)
-		return
-	}
+	accountName := "sygma-" + strings.ToLower(req.Name)
 
-	systemID, err := h.findNGSSystem(ctx, client, teamID)
-	if err != nil {
-		log.Printf("signup: find NGS system: %s", apiError(err))
-		http.Error(w, fmt.Sprintf("failed to find NGS system: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	account, err := h.findExistingAccount(ctx, client, systemID)
+	account, err := h.findExistingAccount(ctx, client, accountName)
 	if err != nil {
 		log.Printf("signup: find existing account: %s", apiError(err))
 		http.Error(w, fmt.Sprintf("failed to check existing account: %v", err), http.StatusInternalServerError)
@@ -69,7 +61,7 @@ func (h *signupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if account != nil {
-		log.Printf("signup: found existing sygma account %s (%s)", account.Name, account.Id)
+		log.Printf("signup: found existing account %s (%s)", account.Name, account.Id)
 		userID, err := h.findBrowserUser(ctx, client, account.Id)
 		if err != nil {
 			log.Printf("signup: find browser user: %s", apiError(err))
@@ -83,16 +75,15 @@ func (h *signupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		resp := signupResponse{
-			AccountID:        account.Id,
-			AccountPublicKey: ptrVal(account.AccountPublicKey),
-			Creds:            creds,
+			AccountID: account.Id,
+			Creds:     creds,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 		return
 	}
 
-	newAccount, err := h.createAccount(ctx, client, systemID)
+	newAccount, err := h.createAccount(ctx, client, accountName)
 	if err != nil {
 		log.Printf("signup: create account: %s", apiError(err))
 		http.Error(w, fmt.Sprintf("failed to create account: %v", err), http.StatusInternalServerError)
@@ -120,60 +111,29 @@ func (h *signupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := signupResponse{
-		AccountID:        newAccount.Id,
-		AccountPublicKey: ptrVal(newAccount.AccountPublicKey),
-		Creds:            creds,
+		AccountID: newAccount.Id,
+		Creds:     creds,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 
-	log.Printf("signup: created account %s (%s) for team %s", newAccount.Name, newAccount.Id, teamID)
+	log.Printf("signup: created account %s (%s)", newAccount.Name, newAccount.Id)
 }
 
-func (h *signupHandler) cpContext(parent context.Context, token string, baseURL string) context.Context {
+func (h *signupHandler) cpContext(parent context.Context) context.Context {
 	ctx := context.WithValue(parent, syncp.ContextServerVariables, map[string]string{
-		"baseUrl": baseURL,
+		"baseUrl": h.cpBaseURL,
 	})
-	return context.WithValue(ctx, syncp.ContextAccessToken, token)
+	return context.WithValue(ctx, syncp.ContextAccessToken, h.cpPAT)
 }
 
-func (h *signupHandler) resolveTeam(ctx context.Context, client *syncp.APIClient, teamID string) (string, error) {
-	if teamID != "" {
-		return teamID, nil
-	}
-	teams, _, err := client.SessionAPI.ListTeams(ctx).Execute()
-	if err != nil {
-		return "", fmt.Errorf("list teams: %w", err)
-	}
-	if len(teams.Items) == 0 {
-		return "", fmt.Errorf("no teams found")
-	}
-	if len(teams.Items) > 1 {
-		return "", fmt.Errorf("multiple teams found, please specify team_id")
-	}
-	return teams.Items[0].Id, nil
-}
-
-func (h *signupHandler) findNGSSystem(ctx context.Context, client *syncp.APIClient, teamID string) (string, error) {
-	systems, _, err := client.TeamAPI.ListTeamSystems(ctx, teamID).Execute()
-	if err != nil {
-		return "", fmt.Errorf("list systems: %w", err)
-	}
-	for _, s := range systems.Items {
-		if s.Name == "NGS" {
-			return s.Id, nil
-		}
-	}
-	return "", fmt.Errorf("no NGS system found in team")
-}
-
-func (h *signupHandler) findExistingAccount(ctx context.Context, client *syncp.APIClient, systemID string) (*syncp.AccountViewResponse, error) {
-	accounts, _, err := client.SystemAPI.ListAccounts(ctx, systemID).Execute()
+func (h *signupHandler) findExistingAccount(ctx context.Context, client *syncp.APIClient, accountName string) (*syncp.AccountViewResponse, error) {
+	accounts, _, err := client.SystemAPI.ListAccounts(ctx, h.systemID).Execute()
 	if err != nil {
 		return nil, fmt.Errorf("list accounts: %w", err)
 	}
 	for _, a := range accounts.Items {
-		if a.Name == "sygma" {
+		if a.Name == accountName {
 			return &a, nil
 		}
 	}
@@ -193,10 +153,10 @@ func (h *signupHandler) findBrowserUser(ctx context.Context, client *syncp.APICl
 	return "", fmt.Errorf("sygma-browser user not found")
 }
 
-func (h *signupHandler) createAccount(ctx context.Context, client *syncp.APIClient, systemID string) (*syncp.AccountViewResponse, error) {
-	account, _, err := client.SystemAPI.CreateAccount(ctx, systemID).
+func (h *signupHandler) createAccount(ctx context.Context, client *syncp.APIClient, accountName string) (*syncp.AccountViewResponse, error) {
+	account, _, err := client.SystemAPI.CreateAccount(ctx, h.systemID).
 		AccountCreateRequest(syncp.AccountCreateRequest{
-			Name: "sygma",
+			Name: accountName,
 			JwtSettings: &syncp.AccountJWTSettings{
 				Info: syncp.Info{
 					Description: syncp.Ptr("Sygma whiteboard account"),
@@ -207,10 +167,11 @@ func (h *signupHandler) createAccount(ctx context.Context, client *syncp.APIClie
 						Payload: syncp.Ptr(int64(1024 * 1024)), // 1 MiB
 					},
 					AccountLimits: syncp.AccountLimits{
-						Conn:    syncp.Ptr(int64(10)),
-						Leaf:    syncp.Ptr(int64(0)),
-						Imports: syncp.Ptr(int64(10)),
-						Exports: syncp.Ptr(int64(2)),
+						Conn:      syncp.Ptr(int64(10)),
+						Leaf:      syncp.Ptr(int64(0)),
+						Imports:   syncp.Ptr(int64(10)),
+						Exports:   syncp.Ptr(int64(2)),
+						Wildcards: syncp.Ptr(true),
 					},
 					TieredLimits: map[string]syncp.JetStreamLimits{
 						"R1": {
@@ -231,7 +192,7 @@ func (h *signupHandler) createAccount(ctx context.Context, client *syncp.APIClie
 
 func (h *signupHandler) createServiceImport(ctx context.Context, client *syncp.APIClient, accountID string) error {
 	serviceType := syncp.EXPORTTYPE_SERVICE
-	_, _, err := client.AccountAPI.CreateSubjectImport(ctx, accountID).
+	_, resp, err := client.AccountAPI.CreateSubjectImport(ctx, accountID).
 		SubjectImportCreateRequest(syncp.SubjectImportCreateRequest{
 			JwtSettings: syncp.Import{
 				Account: &h.serviceAccountNKey,
@@ -239,7 +200,7 @@ func (h *signupHandler) createServiceImport(ctx context.Context, client *syncp.A
 				Type:    &serviceType,
 			},
 		}).Execute()
-	if err != nil {
+	if err != nil && (resp == nil || resp.StatusCode >= 300) {
 		return fmt.Errorf("create subject import: %w", err)
 	}
 	return nil

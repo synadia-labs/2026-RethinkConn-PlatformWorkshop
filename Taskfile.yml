@@ -21,7 +21,7 @@ tasks:
 
   dev:server:
     desc: Run Go service with Air hot reload
-    cmd: air -c server/.air.toml -- -service-account-nkey ${SERVICE_ACCOUNT_NKEY:-MISSING} -nats-creds ${NATS_CREDS:-MISSING} -nats ${NATS_URL:-nats://nats.ngs.synadia-test.com:4222} -cp-url ${CP_URL:-https://cloud.synadia.com}
+    cmd: air -c server/.air.toml
 
   build:
     desc: Build frontend and Go binary

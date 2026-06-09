@@ -28,6 +28,8 @@ export interface WhiteboardInfo {
   id: string
   name: string
   lastModified?: string
+  shared?: boolean
+  jsPrefix?: string
 }
 
 const STREAM_PREFIX = 'whiteboard_'
@@ -61,6 +63,27 @@ export async function listWhiteboards(nc: NatsConnection): Promise<WhiteboardInf
     })
   }
   return boards
+}
+
+export async function listSharedWhiteboards(nc: NatsConnection): Promise<WhiteboardInfo[]> {
+  const accountId = localStorage.getItem('sygma_account_id')
+  if (!accountId) return []
+  const payload = JSON.stringify({ account_id: accountId })
+  const resp = await nc.request('sygma.whiteboard.list-shared', payload, { timeout: 10_000 })
+  const data = JSON.parse(new TextDecoder().decode(resp.data)) as {
+    boards?: Array<{ stream_name: string; board_name: string; js_prefix: string }>
+    error?: string
+  }
+  if (data.error || !data.boards) return []
+  return data.boards.map((b) => {
+    const id = b.stream_name.slice(STREAM_PREFIX.length)
+    return {
+      id,
+      name: b.board_name || id,
+      shared: true,
+      jsPrefix: b.js_prefix,
+    }
+  })
 }
 
 export async function renameWhiteboard(

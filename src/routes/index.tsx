@@ -5,21 +5,13 @@ import {
   createWhiteboard,
   deleteWhiteboard,
   ensureStream,
+  listSharedWhiteboards,
   listWhiteboards,
   renameWhiteboard,
 } from '#/lib/nats'
 import type { NatsConnection } from '@nats-io/nats-core'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import {
-  Check,
-  Copy,
-  Import,
-  LogOut,
-  Plus,
-  Share2,
-  Trash2,
-  X,
-} from 'lucide-react'
+import { Import, LogOut, Plus, Share2, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 export const Route = createFileRoute('/')({ component: Home })
@@ -31,7 +23,7 @@ function Home() {
 
   function signOut() {
     localStorage.removeItem('sygma_account_id')
-    localStorage.removeItem('sygma_account_nkey')
+    localStorage.removeItem('sygma_name')
     localStorage.removeItem('sygma_creds')
     setSignedUp(false)
   }
@@ -44,9 +36,7 @@ function Home() {
 }
 
 function SignupForm({ onSuccess }: { onSuccess: () => void }) {
-  const [token, setToken] = useState('')
-  const [teamId, setTeamId] = useState('')
-  const [cpUrl, setCpUrl] = useState('https://cloud.synadia.com')
+  const [name, setName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -59,11 +49,7 @@ function SignupForm({ onSuccess }: { onSuccess: () => void }) {
       const res = await fetch('/api/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token,
-          team_id: teamId || undefined,
-          cp_url: cpUrl || undefined,
-        }),
+        body: JSON.stringify({ name }),
       })
 
       if (!res.ok) {
@@ -73,7 +59,7 @@ function SignupForm({ onSuccess }: { onSuccess: () => void }) {
 
       const data = await res.json()
       localStorage.setItem('sygma_account_id', data.account_id)
-      localStorage.setItem('sygma_account_nkey', data.account_public_key)
+      localStorage.setItem('sygma_name', name)
       localStorage.setItem('sygma_creds', data.creds)
       onSuccess()
     } catch (err) {
@@ -89,7 +75,7 @@ function SignupForm({ onSuccess }: { onSuccess: () => void }) {
         &Sigma;ygma
       </h1>
       <p className="text-xl text-[var(--sea-ink-soft)]">
-        Collaborative whiteboard powered by NATS
+        Collaborative whiteboard powered by Synadia Cloud
       </p>
 
       <form
@@ -98,54 +84,24 @@ function SignupForm({ onSuccess }: { onSuccess: () => void }) {
       >
         <div>
           <label
-            htmlFor="token"
+            htmlFor="name"
             className="mb-1 block font-medium text-[var(--sea-ink)]"
           >
-            Synadia Cloud Personal Access Token
+            Your name
           </label>
           <input
-            id="token"
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="uat_..."
+            id="name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            pattern="[a-zA-Z0-9_-]+"
+            placeholder="name"
             required
             className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
           />
-        </div>
-
-        <div>
-          <label
-            htmlFor="cpUrl"
-            className="mb-1 block font-medium text-[var(--sea-ink)]"
-          >
-            Synadia Cloud URL
-          </label>
-          <input
-            id="cpUrl"
-            type="url"
-            value={cpUrl}
-            onChange={(e) => setCpUrl(e.target.value)}
-            className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
-          />
-        </div>
-
-        <div>
-          <label
-            htmlFor="teamId"
-            className="mb-1 block font-medium text-[var(--sea-ink)]"
-          >
-            Team ID{' '}
-            <span className="text-[var(--sea-ink-soft)]">(optional)</span>
-          </label>
-          <input
-            id="teamId"
-            type="text"
-            value={teamId}
-            onChange={(e) => setTeamId(e.target.value)}
-            placeholder="Leave blank to auto-detect"
-            className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
-          />
+          <p className="text-xs text-[var(--sea-ink-soft)]">
+            Letters, numbers, hyphens, and underscores only
+          </p>
         </div>
 
         {error && <p className="text-red-500">{error}</p>}
@@ -155,7 +111,7 @@ function SignupForm({ onSuccess }: { onSuccess: () => void }) {
           disabled={loading}
           className="rounded-full bg-[var(--lagoon-deep)] px-5 py-3 text-lg font-medium text-white hover:bg-[var(--lagoon)] disabled:opacity-50"
         >
-          {loading ? 'Signing up...' : 'Sign up'}
+          {loading ? 'Signing up...' : 'Get started'}
         </button>
       </form>
     </main>
@@ -177,42 +133,50 @@ function timeAgo(dateStr: string): string {
   return `${months}mo ago`
 }
 
-function CopyField({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false)
-
-  function copy() {
-    navigator.clipboard.writeText(value)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  return (
-    <div>
-      <p className="mb-1 font-medium text-[var(--sea-ink-soft)]">{label}</p>
-      <div className="flex items-center gap-2">
-        <code className="flex-1 overflow-x-auto rounded bg-[var(--sand)] px-2 py-1.5 font-mono text-[var(--sea-ink)]">
-          {value}
-        </code>
-        <button
-          onClick={copy}
-          className="rounded p-1.5 text-[var(--sea-ink-soft)] hover:text-[var(--sea-ink)]"
-        >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-        </button>
-      </div>
-    </div>
-  )
-}
-
 function ShareModal({
   board,
+  nc,
   onClose,
 }: {
   board: WhiteboardInfo
+  nc: NatsConnection | null
   onClose: () => void
 }) {
-  const accountNkey = localStorage.getItem('sygma_account_nkey') || ''
-  const subject = `whiteboard.${board.id}.>`
+  const [recipientName, setRecipientName] = useState('')
+  const [sharing, setSharing] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
+
+  async function handleShare(e: React.FormEvent) {
+    e.preventDefault()
+    if (!nc || !recipientName.trim()) return
+    setSharing(true)
+    setError('')
+
+    try {
+      const payload = JSON.stringify({
+        owner_account_id: localStorage.getItem('sygma_account_id'),
+        recipient_name: recipientName.trim(),
+        board_id: board.id,
+      })
+      const resp = await nc.request('sygma.whiteboard.share', payload, {
+        timeout: 15000,
+      })
+      const data = JSON.parse(new TextDecoder().decode(resp.data)) as {
+        ok?: boolean
+        error?: string
+      }
+      if (data.error) {
+        setError(data.error)
+      } else {
+        setSuccess(true)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Share failed')
+    } finally {
+      setSharing(false)
+    }
+  }
 
   return (
     <div
@@ -220,7 +184,7 @@ function ShareModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] p-6 shadow-xl"
+        className="w-full max-w-md rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
@@ -235,46 +199,55 @@ function ShareModal({
           </button>
         </div>
 
-        <div className="space-y-4">
-          <p className="text-[var(--sea-ink-soft)]">
-            To share this whiteboard, both you and the recipient need to
-            configure subject exports/imports in Synadia Cloud.
-          </p>
-
-          <div className="space-y-3 rounded-lg border border-[var(--line)] p-4">
-            <p className="font-semibold text-[var(--sea-ink)]">
-              Your info (give to recipient)
+        {success ? (
+          <div className="space-y-3">
+            <p className="text-sm text-[var(--lagoon)]">
+              Board shared successfully! It will appear in {recipientName}'s
+              whiteboard list.
             </p>
-            <CopyField label="Account Public Key" value={accountNkey} />
-            <CopyField label="Subject" value={subject} />
+            <button
+              onClick={onClose}
+              className="w-full rounded-lg bg-[var(--lagoon-deep)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--lagoon)]"
+            >
+              Done
+            </button>
           </div>
+        ) : (
+          <form onSubmit={handleShare} className="space-y-4">
+            <p className="text-sm text-[var(--sea-ink-soft)]">
+              Enter the recipient's name to share this whiteboard. They'll need
+              to click "Import board" and enter the board ID.
+            </p>
 
-          <div className="space-y-2 rounded-lg border border-[var(--line)] p-4">
-            <p className="font-semibold text-[var(--sea-ink)]">Steps</p>
-            <ol className="list-inside list-decimal space-y-1.5 text-[var(--sea-ink-soft)]">
-              <li>
-                <strong className="text-[var(--sea-ink)]">You (owner):</strong>{' '}
-                In Synadia Cloud, go to your sygma account and create a{' '}
-                <strong>Subject Export</strong> for{' '}
-                <code className="rounded bg-[var(--sand)] px-1 font-mono">
-                  {subject}
-                </code>
-              </li>
-              <li>
-                <strong className="text-[var(--sea-ink)]">Recipient:</strong> In
-                Synadia Cloud, create a <strong>Subject Import</strong> using
-                your Account Public Key and subject above
-              </li>
-              <li>
-                <strong className="text-[var(--sea-ink)]">Recipient:</strong>{' '}
-                Click "Import board" in Sygma and enter the board ID:{' '}
-                <code className="rounded bg-[var(--sand)] px-1 font-mono">
-                  {board.id}
-                </code>
-              </li>
-            </ol>
-          </div>
-        </div>
+            <div>
+              <label
+                htmlFor="recipientName"
+                className="mb-1 block text-sm font-medium text-[var(--sea-ink)]"
+              >
+                Recipient name
+              </label>
+              <input
+                id="recipientName"
+                type="text"
+                value={recipientName}
+                onChange={(e) => setRecipientName(e.target.value)}
+                placeholder="Enter their name"
+                required
+                className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
+              />
+            </div>
+
+            {error && <p className="text-sm text-red-500">{error}</p>}
+
+            <button
+              type="submit"
+              disabled={sharing}
+              className="w-full rounded-lg bg-[var(--lagoon-deep)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--lagoon)] disabled:opacity-50"
+            >
+              {sharing ? 'Sharing...' : 'Share'}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   )
@@ -327,7 +300,16 @@ function BoardCard({
       </Link>
       <div className="flex items-start justify-between border-t border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3">
         <div className="min-w-0 flex-1">
-          {editing ? (
+          {board.shared ? (
+            <div className="flex items-center gap-1.5">
+              <p className="truncate font-semibold text-[var(--sea-ink)] group-hover:text-[var(--lagoon)]">
+                {board.name}
+              </p>
+              <span className="shrink-0 rounded bg-[var(--lagoon-deep)] px-1.5 py-0.5 text-xs text-white">
+                Shared
+              </span>
+            </div>
+          ) : editing ? (
             <form
               onSubmit={(e) => {
                 e.preventDefault()
@@ -363,6 +345,7 @@ function BoardCard({
             </p>
           )}
         </div>
+        {!board.shared && (
         <div className="ml-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           <button
             onClick={() => setShowShare(true)}
@@ -385,9 +368,10 @@ function BoardCard({
             <Trash2 size={14} />
           </button>
         </div>
+        )}
       </div>
       {showShare && (
-        <ShareModal board={board} onClose={() => setShowShare(false)} />
+        <ShareModal board={board} nc={nc} onClose={() => setShowShare(false)} />
       )}
     </div>
   )
@@ -411,14 +395,19 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
   const load = useCallback(async () => {
     const { nc } = await connectNats()
     ncRef.current = nc
-    const list = await listWhiteboards(nc)
-    list.sort((a, b) => {
+    const [owned, shared] = await Promise.all([
+      listWhiteboards(nc),
+      listSharedWhiteboards(nc),
+    ])
+    const ownedIds = new Set(owned.map((b) => b.id))
+    const all = [...owned, ...shared.filter((b) => !ownedIds.has(b.id))]
+    all.sort((a, b) => {
       if (!a.lastModified || !b.lastModified) return 0
       return (
         new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime()
       )
     })
-    setBoards(list)
+    setBoards(all)
     setLoading(false)
   }, [])
 
@@ -486,13 +475,18 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
         <h1 className="font-serif text-xl font-bold text-[var(--sea-ink)]">
           &Sigma;ygma
         </h1>
-        <button
-          onClick={onSignOut}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[var(--sea-ink-soft)] hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)]"
-        >
-          <LogOut size={14} />
-          Sign out
-        </button>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-[var(--sea-ink-soft)]">
+            {localStorage.getItem('sygma_name')}
+          </span>
+          <button
+            onClick={onSignOut}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[var(--sea-ink-soft)] hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)]"
+          >
+            <LogOut size={14} />
+            Sign out
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 px-6 py-6">
