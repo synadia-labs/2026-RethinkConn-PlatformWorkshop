@@ -32,13 +32,21 @@ func requireEnv(key string) string {
 func main() {
 	addr := envOr("ADDR", ":8080")
 	natsURL := envOr("NATS_URL", "nats://nats.ngs.synadia-test.com:4222")
-	natsCreds := requireEnv("NATS_CREDS")
 	cpBaseURL := envOr("CP_URL", "https://cloud.synadia.com")
 	cpPAT := requireEnv("CP_PAT")
 	cpSystemID := requireEnv("CP_SYSTEM_ID")
 	serviceAccountNKey := requireEnv("SERVICE_ACCOUNT_NKEY")
 
-	nc, err := nats.Connect(natsURL, nats.UserCredentials(natsCreds), nats.Name("sygma-server"))
+	var natsAuth nats.Option
+	if creds := os.Getenv("NATS_CREDS"); creds != "" {
+		natsAuth = nats.UserCredentials(creds)
+	} else {
+		natsJWT := requireEnv("NATS_JWT")
+		natsSeed := requireEnv("NATS_SEED")
+		natsAuth = nats.UserCredentialBytes([]byte(natsJWT), []byte(natsSeed))
+	}
+
+	nc, err := nats.Connect(natsURL, natsAuth, nats.Name("sygma-server"))
 	if err != nil {
 		log.Fatalf("failed to connect to NATS: %v", err)
 	}

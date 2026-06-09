@@ -3,7 +3,7 @@ node_modules
 dist
 dist-ssr
 *.local
-.env
+.env*
 .tanstack
 __unconfig*
 /adrs
@@ -11,3 +11,5 @@ __unconfig*
 /server/server
 /server/tmp
 *.creds
+*.toml
+slides.html

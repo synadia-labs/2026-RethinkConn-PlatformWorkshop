@@ -1,0 +1,8 @@
+node_modules
+server/tmp
+server/sygma
+server/server
+.env
+*.creds
+.git
+adrs

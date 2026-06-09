@@ -8,7 +8,7 @@ import {
   wsconnect,
 } from '@nats-io/nats-core'
 
-const NGS_WS_URL = 'wss://connect.ngs.synadia-test.com'
+const NGS_WS_URL = 'wss://connect.ngs.global'
 
 export interface NatsContext {
   nc: NatsConnection
@@ -126,7 +126,9 @@ export async function deleteWhiteboard(
   const accountId = sessionStorage.getItem('sygma_account_id')
   if (accountId) {
     const payload = JSON.stringify({ account_id: accountId, board_id: id })
-    await nc.request('sygma.whiteboard.delete', payload, { timeout: 15_000 }).catch(() => {})
+    await nc
+      .request('sygma.whiteboard.delete', payload, { timeout: 15_000 })
+      .catch(() => {})
   }
   const jsm = await jetstreamManager(nc)
   await jsm.streams.delete(STREAM_PREFIX + id)
@@ -139,8 +141,13 @@ export async function unshareWhiteboard(
   const accountId = sessionStorage.getItem('sygma_account_id')
   if (!accountId) throw new Error('Not signed in')
   const payload = JSON.stringify({ account_id: accountId, board_id: id })
-  const resp = await nc.request('sygma.whiteboard.unshare', payload, { timeout: 10_000 })
-  const data = JSON.parse(new TextDecoder().decode(resp.data)) as { ok?: boolean; error?: string }
+  const resp = await nc.request('sygma.whiteboard.unshare', payload, {
+    timeout: 10_000,
+  })
+  const data = JSON.parse(new TextDecoder().decode(resp.data)) as {
+    ok?: boolean
+    error?: string
+  }
   if (data.error) throw new Error(data.error)
 }
 

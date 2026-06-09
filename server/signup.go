@@ -170,7 +170,7 @@ func (h *signupHandler) createAccount(ctx context.Context, client *syncp.APIClie
 						Conn:      syncp.Ptr(int64(10)),
 						Leaf:      syncp.Ptr(int64(0)),
 						Imports:   syncp.Ptr(int64(10)),
-						Exports:   syncp.Ptr(int64(2)),
+						Exports:   syncp.Ptr(int64(10)),
 						Wildcards: syncp.Ptr(true),
 					},
 					TieredLimits: map[string]syncp.JetStreamLimits{
@@ -178,7 +178,7 @@ func (h *signupHandler) createAccount(ctx context.Context, client *syncp.APIClie
 							DiskStorage:        syncp.Ptr(int64(100 * 1024 * 1024)), // 100 MiB
 							DiskMaxStreamBytes: syncp.Ptr(int64(10 * 1024 * 1024)),  // 10 MiB per stream
 							Streams:            syncp.Ptr(int64(10)),
-							Consumer:           syncp.Ptr(int64(2)),
+							Consumer:           syncp.Ptr(int64(10)),
 						},
 					},
 				},
