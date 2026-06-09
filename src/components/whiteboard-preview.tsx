@@ -2,25 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { NatsConnection } from '@nats-io/nats-core'
 import { nuid } from '@nats-io/nats-core'
 import { jetstream } from '@nats-io/jetstream'
-
-interface Point {
-  x: number
-  y: number
-}
-
-interface DrawMessage {
-  type: 'draw'
-  from: Point
-  to: Point
-  thickness: number
-  color: string
-}
-
-interface ClearMessage {
-  type: 'clear'
-}
-
-type Message = DrawMessage | ClearMessage
+import type { Message, ShapeMessage } from '#/lib/types'
 
 const PREVIEW_W = 400
 const PREVIEW_H = 280
@@ -39,6 +21,41 @@ export function WhiteboardPreview({ id, nc, jsPrefix, deliverPrefix }: { id: str
 
     let cancelled = false
 
+    function renderShape(c: CanvasRenderingContext2D, data: ShapeMessage, scaleX: number, scaleY: number) {
+      const scale = Math.min(scaleX, scaleY)
+      c.lineWidth = data.thickness * scale
+      c.lineCap = 'round'
+      c.lineJoin = 'round'
+      c.strokeStyle = data.color
+
+      const ox = data.origin.x * scaleX
+      const oy = data.origin.y * scaleY
+      const ex = data.endpoint.x * scaleX
+      const ey = data.endpoint.y * scaleY
+
+      switch (data.shape) {
+        case 'line':
+          c.beginPath()
+          c.moveTo(ox, oy)
+          c.lineTo(ex, ey)
+          c.stroke()
+          break
+        case 'rect':
+          c.strokeRect(ox, oy, ex - ox, ey - oy)
+          break
+        case 'ellipse': {
+          const cx = (ox + ex) / 2
+          const cy = (oy + ey) / 2
+          const rx = Math.abs(ex - ox) / 2
+          const ry = Math.abs(ey - oy) / 2
+          c.beginPath()
+          c.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2)
+          c.stroke()
+          break
+        }
+      }
+    }
+
     function renderMessage(data: Message) {
       if (data.type === 'draw') {
         const scaleX = PREVIEW_W / window.innerWidth
@@ -51,6 +68,10 @@ export function WhiteboardPreview({ id, nc, jsPrefix, deliverPrefix }: { id: str
         ctx!.moveTo(data.from.x * scaleX, data.from.y * scaleY)
         ctx!.lineTo(data.to.x * scaleX, data.to.y * scaleY)
         ctx!.stroke()
+      } else if (data.type === 'shape') {
+        const scaleX = PREVIEW_W / window.innerWidth
+        const scaleY = PREVIEW_H / window.innerHeight
+        renderShape(ctx!, data, scaleX, scaleY)
       } else {
         ctx!.clearRect(0, 0, PREVIEW_W, PREVIEW_H)
       }

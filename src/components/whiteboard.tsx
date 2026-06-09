@@ -1,31 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeft, Pencil, Eraser, Trash2 } from 'lucide-react'
+import { ArrowLeft, Circle, Eraser, Minus, Pencil, Square, Trash2 } from 'lucide-react'
 import type { NatsConnection } from '@nats-io/nats-core'
 import { connectNats, ensureStream, rollupHeaders } from '#/lib/nats'
+import type { Point, DrawMessage, ShapeMessage, Message, Tool } from '#/lib/types'
 import { jetstream } from '@nats-io/jetstream'
 import { nuid } from '@nats-io/nats-core'
-
-interface Point {
-  x: number
-  y: number
-}
-
-interface DrawMessage {
-  type: 'draw'
-  id: string
-  from: Point
-  to: Point
-  thickness: number
-  color: string
-}
-
-interface ClearMessage {
-  type: 'clear'
-  id: string
-}
-
-type Message = DrawMessage | ClearMessage
 
 const COLORS = ['#000000', '#ef4444', '#22c55e', '#3b82f6', '#ffffff']
 const THICKNESSES = [5, 10, 15, 20]
@@ -41,13 +21,20 @@ export function Whiteboard({ id, jsPrefix, deliverPrefix }: { id: string; jsPref
 
   const [color, setColor] = useState(COLORS[0])
   const [thickness, setThickness] = useState(THICKNESSES[0])
+  const [tool, setTool] = useState<Tool>('draw')
   const [connected, setConnected] = useState(false)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const colorRef = useRef(color)
   const thicknessRef = useRef(thickness)
+  const toolRef = useRef(tool)
   colorRef.current = color
   thicknessRef.current = thickness
+  toolRef.current = tool
+
+  const overlayRef = useRef<HTMLCanvasElement>(null)
+  const shapeOriginRef = useRef<Point>({ x: 0, y: 0 })
+  const shapeEndpointRef = useRef<Point>({ x: 0, y: 0 })
 
   const subject = `whiteboard.${id}`
   const streamName = `whiteboard_${id}`
@@ -65,6 +52,40 @@ export function Whiteboard({ id, jsPrefix, deliverPrefix }: { id: string; jsPref
     ctx.stroke()
   }, [])
 
+  const drawShape = useCallback((ctx: CanvasRenderingContext2D, msg: ShapeMessage) => {
+    ctx.lineWidth = msg.thickness
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = msg.color
+
+    switch (msg.shape) {
+      case 'line':
+        ctx.beginPath()
+        ctx.moveTo(msg.origin.x, msg.origin.y)
+        ctx.lineTo(msg.endpoint.x, msg.endpoint.y)
+        ctx.stroke()
+        break
+      case 'rect':
+        ctx.strokeRect(
+          msg.origin.x,
+          msg.origin.y,
+          msg.endpoint.x - msg.origin.x,
+          msg.endpoint.y - msg.origin.y,
+        )
+        break
+      case 'ellipse': {
+        const cx = (msg.origin.x + msg.endpoint.x) / 2
+        const cy = (msg.origin.y + msg.endpoint.y) / 2
+        const rx = Math.abs(msg.endpoint.x - msg.origin.x) / 2
+        const ry = Math.abs(msg.endpoint.y - msg.origin.y) / 2
+        ctx.beginPath()
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2)
+        ctx.stroke()
+        break
+      }
+    }
+  }, [])
+
   const handleMessage = useCallback(
     (msg: Message) => {
       switch (msg.type) {
@@ -73,6 +94,13 @@ export function Whiteboard({ id, jsPrefix, deliverPrefix }: { id: string; jsPref
             drawRaw(msg)
           }
           break
+        case 'shape': {
+          if (msg.id !== localIdRef.current) {
+            const ctx = ctxRef.current
+            if (ctx) drawShape(ctx, msg)
+          }
+          break
+        }
         case 'clear': {
           const canvas = canvasRef.current
           const ctx = ctxRef.current
@@ -83,7 +111,7 @@ export function Whiteboard({ id, jsPrefix, deliverPrefix }: { id: string; jsPref
         }
       }
     },
-    [drawRaw],
+    [drawRaw, drawShape],
   )
 
   useEffect(() => {
@@ -210,9 +238,16 @@ export function Whiteboard({ id, jsPrefix, deliverPrefix }: { id: string; jsPref
       if (!canvas || !ctx) return
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
       const parent = canvas.parentElement
-      canvas.width = parent ? parent.clientWidth : window.innerWidth
-      canvas.height = parent ? parent.clientHeight : window.innerHeight
+      const w = parent ? parent.clientWidth : window.innerWidth
+      const h = parent ? parent.clientHeight : window.innerHeight
+      canvas.width = w
+      canvas.height = h
       ctx.putImageData(imageData, 0, 0)
+      const overlay = overlayRef.current
+      if (overlay) {
+        overlay.width = w
+        overlay.height = h
+      }
     }
     resize()
     window.addEventListener('resize', resize)
@@ -236,33 +271,80 @@ export function Whiteboard({ id, jsPrefix, deliverPrefix }: { id: string; jsPref
   const onPointerDown = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
       drawingRef.current = true
-      lastRef.current = getPoint(e)
+      const pt = getPoint(e)
+      lastRef.current = pt
+      if (toolRef.current !== 'draw') {
+        shapeOriginRef.current = pt
+      }
     },
     [getPoint],
   )
 
   const onPointerUp = useCallback(() => {
+    if (!drawingRef.current) return
     drawingRef.current = false
-  }, [])
+    const currentTool = toolRef.current
+
+    if (currentTool !== 'draw') {
+      const msg: ShapeMessage = {
+        type: 'shape',
+        id: localIdRef.current,
+        shape: currentTool,
+        origin: shapeOriginRef.current,
+        endpoint: shapeEndpointRef.current,
+        thickness: thicknessRef.current,
+        color: colorRef.current,
+      }
+      const ctx = ctxRef.current
+      if (ctx) drawShape(ctx, msg)
+      publish(msg)
+      const overlay = overlayRef.current
+      if (overlay) {
+        const octx = overlay.getContext('2d')
+        if (octx) octx.clearRect(0, 0, overlay.width, overlay.height)
+      }
+    }
+  }, [drawShape, publish])
 
   const onPointerMove = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
       if (!drawingRef.current) return
-      const from = lastRef.current
-      const to = getPoint(e)
-      const msg: DrawMessage = {
-        type: 'draw',
-        id: localIdRef.current,
-        from,
-        to,
-        thickness: thicknessRef.current,
-        color: colorRef.current,
+      const currentTool = toolRef.current
+
+      if (currentTool === 'draw') {
+        const from = lastRef.current
+        const to = getPoint(e)
+        const msg: DrawMessage = {
+          type: 'draw',
+          id: localIdRef.current,
+          from,
+          to,
+          thickness: thicknessRef.current,
+          color: colorRef.current,
+        }
+        drawRaw(msg)
+        publish(msg)
+        lastRef.current = to
+      } else {
+        const overlay = overlayRef.current
+        if (!overlay) return
+        const octx = overlay.getContext('2d')
+        if (!octx) return
+        octx.clearRect(0, 0, overlay.width, overlay.height)
+        const endpoint = getPoint(e)
+        shapeEndpointRef.current = endpoint
+        drawShape(octx, {
+          type: 'shape',
+          id: localIdRef.current,
+          shape: currentTool,
+          origin: shapeOriginRef.current,
+          endpoint,
+          thickness: thicknessRef.current,
+          color: colorRef.current,
+        })
       }
-      drawRaw(msg)
-      publish(msg)
-      lastRef.current = to
     },
-    [getPoint, drawRaw, publish],
+    [getPoint, drawRaw, publish, drawShape],
   )
 
   const clear = useCallback(() => {
@@ -315,8 +397,20 @@ export function Whiteboard({ id, jsPrefix, deliverPrefix }: { id: string; jsPref
 
         <div className="my-1 h-px w-6 bg-neutral-700" />
 
-        <button className={toolbarBtnClass(true)} title="Draw">
+        <button onClick={() => setTool('draw')} className={toolbarBtnClass(tool === 'draw')} title="Freehand">
           <Pencil size={18} />
+        </button>
+
+        <button onClick={() => setTool('line')} className={toolbarBtnClass(tool === 'line')} title="Line">
+          <Minus size={18} />
+        </button>
+
+        <button onClick={() => setTool('rect')} className={toolbarBtnClass(tool === 'rect')} title="Rectangle">
+          <Square size={18} />
+        </button>
+
+        <button onClick={() => setTool('ellipse')} className={toolbarBtnClass(tool === 'ellipse')} title="Ellipse">
+          <Circle size={18} />
         </button>
 
         <button onClick={clear} className={toolbarBtnClass(false)} title="Clear canvas">
@@ -382,6 +476,10 @@ export function Whiteboard({ id, jsPrefix, deliverPrefix }: { id: string; jsPref
           onTouchStart={onPointerDown}
           onTouchEnd={onPointerUp}
           onTouchMove={onPointerMove}
+        />
+        <canvas
+          ref={overlayRef}
+          className="pointer-events-none absolute inset-0 h-full w-full"
         />
       </div>
     </div>
