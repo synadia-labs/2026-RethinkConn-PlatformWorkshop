@@ -4,7 +4,6 @@ import {
   connectNats,
   createWhiteboard,
   deleteWhiteboard,
-  ensureStream,
   listSharedWhiteboards,
   listWhiteboards,
   renameWhiteboard,
@@ -12,7 +11,7 @@ import {
 } from '#/lib/nats'
 import type { NatsConnection } from '@nats-io/nats-core'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { Import, LogOut, Plus, Share2, Trash2, X } from 'lucide-react'
+import { LogOut, Plus, Share2, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 export const Route = createFileRoute('/')({ component: Home })
@@ -685,12 +684,7 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
   const [creating, setCreating] = useState(false)
   const [showNameInput, setShowNameInput] = useState(false)
   const [newName, setNewName] = useState('')
-  const [showImport, setShowImport] = useState(false)
-  const [importId, setImportId] = useState('')
-  const [importName, setImportName] = useState('')
-  const [importing, setImporting] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
-  const importInputRef = useRef<HTMLInputElement>(null)
   const ncRef = useRef<NatsConnection | null>(null)
   const navigate = useNavigate()
 
@@ -731,33 +725,6 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
   useEffect(() => {
     if (showNameInput) nameInputRef.current?.focus()
   }, [showNameInput])
-
-  useEffect(() => {
-    if (showImport) importInputRef.current?.focus()
-  }, [showImport])
-
-  async function handleImport() {
-    const nc = ncRef.current
-    const id = importId.trim()
-    if (!nc || !id) return
-    setImporting(true)
-    try {
-      await ensureStream(nc, `whiteboard_${id}`, [`whiteboard.${id}.>`])
-      setShowImport(false)
-      setImportId('')
-      setImportName('')
-      await nc.close()
-      ncRef.current = null
-      navigate({
-        to: '/board/$id',
-        params: { id },
-        search: { jsPrefix: undefined, deliverPrefix: undefined },
-      })
-    } catch (err) {
-      console.error('import whiteboard:', err)
-      setImporting(false)
-    }
-  }
 
   async function handleCreate() {
     const nc = ncRef.current
@@ -805,59 +772,6 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
             Whiteboards
           </h2>
           <div className="flex items-center gap-2">
-            {showImport && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  handleImport()
-                }}
-                className="flex items-center gap-2"
-              >
-                <input
-                  ref={importInputRef}
-                  type="text"
-                  value={importId}
-                  onChange={(e) => setImportId(e.target.value)}
-                  placeholder="Board ID"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setShowImport(false)
-                      setImportId('')
-                      setImportName('')
-                    }
-                  }}
-                  className="w-48 rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1.5 font-mono text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
-                />
-                <input
-                  type="text"
-                  value={importName}
-                  onChange={(e) => setImportName(e.target.value)}
-                  placeholder="Name (optional)"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setShowImport(false)
-                      setImportId('')
-                      setImportName('')
-                    }
-                  }}
-                  className="w-36 rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1.5 text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
-                />
-              </form>
-            )}
-            <button
-              onClick={() => {
-                if (showImport) {
-                  handleImport()
-                } else {
-                  setShowImport(true)
-                }
-              }}
-              disabled={importing || loading}
-              className="flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-4 py-2 font-medium text-[var(--sea-ink)] hover:bg-[var(--link-bg-hover)] disabled:opacity-50"
-            >
-              <Import size={16} />
-              {importing ? 'Importing...' : 'Import board'}
-            </button>
             {showNameInput && (
               <form
                 onSubmit={(e) => {
