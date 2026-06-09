@@ -13,7 +13,7 @@ import {
 import type { NatsConnection } from '@nats-io/nats-core'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Import, LogOut, Plus, Share2, Trash2, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 export const Route = createFileRoute('/')({ component: Home })
 
@@ -36,10 +36,230 @@ function Home() {
   return <WhiteboardList onSignOut={signOut} />
 }
 
+function AnimatedBackground() {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    let animId = 0
+
+    function resize() {
+      canvas!.width = window.innerWidth
+      canvas!.height = window.innerHeight
+    }
+    resize()
+    window.addEventListener('resize', resize)
+
+    const strokes: Array<{
+      points: Array<{ x: number; y: number }>
+      color: string
+      width: number
+      speed: number
+      progress: number
+      opacity: number
+      fadeStart: number
+    }> = []
+
+    const colors = [
+      'rgba(16, 185, 129, 0.4)',
+      'rgba(5, 150, 105, 0.3)',
+      'rgba(20, 184, 166, 0.35)',
+      'rgba(110, 231, 183, 0.25)',
+      'rgba(52, 211, 153, 0.3)',
+    ]
+
+    function createStroke() {
+      const w = canvas!.width
+      const h = canvas!.height
+      const numPoints = 4 + Math.floor(Math.random() * 4)
+      const points: Array<{ x: number; y: number }> = []
+      const startX = Math.random() * w
+      const startY = Math.random() * h
+      points.push({ x: startX, y: startY })
+      for (let i = 1; i < numPoints; i++) {
+        points.push({
+          x: points[i - 1].x + (Math.random() - 0.5) * 400,
+          y: points[i - 1].y + (Math.random() - 0.5) * 300,
+        })
+      }
+      return {
+        points,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        width: 1.5 + Math.random() * 3,
+        speed: 0.002 + Math.random() * 0.004,
+        progress: 0,
+        opacity: 1,
+        fadeStart: 0.7 + Math.random() * 0.2,
+      }
+    }
+
+    for (let i = 0; i < 8; i++) {
+      const s = createStroke()
+      s.progress = Math.random()
+      strokes.push(s)
+    }
+
+    function catmullRom(
+      p0: { x: number; y: number },
+      p1: { x: number; y: number },
+      p2: { x: number; y: number },
+      p3: { x: number; y: number },
+      t: number,
+    ) {
+      const t2 = t * t
+      const t3 = t2 * t
+      return {
+        x:
+          0.5 *
+          (2 * p1.x +
+            (-p0.x + p2.x) * t +
+            (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+            (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+        y:
+          0.5 *
+          (2 * p1.y +
+            (-p0.y + p2.y) * t +
+            (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+            (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
+      }
+    }
+
+    function drawStroke(stroke: (typeof strokes)[0]) {
+      const pts = stroke.points
+      if (pts.length < 2) return
+      const totalSegments = (pts.length - 1) * 20
+      const drawCount = Math.floor(stroke.progress * totalSegments)
+      if (drawCount < 1) return
+
+      const alpha =
+        stroke.progress > stroke.fadeStart
+          ? 1 - (stroke.progress - stroke.fadeStart) / (1 - stroke.fadeStart)
+          : 1
+      ctx!.globalAlpha = alpha * stroke.opacity
+      ctx!.strokeStyle = stroke.color
+      ctx!.lineWidth = stroke.width
+      ctx!.lineCap = 'round'
+      ctx!.lineJoin = 'round'
+      ctx!.beginPath()
+
+      let first = true
+      for (let i = 0; i < drawCount; i++) {
+        const seg = Math.floor(i / 20)
+        const t = (i % 20) / 20
+        const p0 = pts[Math.max(seg - 1, 0)]
+        const p1 = pts[seg]
+        const p2 = pts[Math.min(seg + 1, pts.length - 1)]
+        const p3 = pts[Math.min(seg + 2, pts.length - 1)]
+        const pt = catmullRom(p0, p1, p2, p3, t)
+        if (first) {
+          ctx!.moveTo(pt.x, pt.y)
+          first = false
+        } else {
+          ctx!.lineTo(pt.x, pt.y)
+        }
+      }
+      ctx!.stroke()
+      ctx!.globalAlpha = 1
+    }
+
+    function animate() {
+      ctx!.clearRect(0, 0, canvas!.width, canvas!.height)
+      for (let i = strokes.length - 1; i >= 0; i--) {
+        strokes[i].progress += strokes[i].speed
+        if (strokes[i].progress >= 1) {
+          strokes[i] = createStroke()
+        }
+        drawStroke(strokes[i])
+      }
+      animId = requestAnimationFrame(animate)
+    }
+    animate()
+
+    return () => {
+      cancelAnimationFrame(animId)
+      window.removeEventListener('resize', resize)
+    }
+  }, [])
+
+  return (
+    <canvas ref={canvasRef} className="pointer-events-none absolute inset-0" />
+  )
+}
+
+function FloatingShapes() {
+  const shapes = useMemo(
+    () =>
+      Array.from({ length: 12 }, (_, i) => ({
+        id: i,
+        type: ['circle', 'rect', 'line'][i % 3] as 'circle' | 'rect' | 'line',
+        x: 5 + Math.floor((i * 37 + 13) % 90),
+        y: 5 + Math.floor((i * 53 + 7) % 90),
+        size: 30 + ((i * 17) % 50),
+        delay: (i * 0.8) % 6,
+        duration: 15 + ((i * 3) % 15),
+      })),
+    [],
+  )
+
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {shapes.map((s) => (
+        <div
+          key={s.id}
+          className="absolute"
+          style={{
+            left: `${s.x}%`,
+            top: `${s.y}%`,
+            animation: `float ${s.duration}s ease-in-out ${s.delay}s infinite alternate`,
+          }}
+        >
+          {s.type === 'circle' && (
+            <div
+              className="rounded-full border border-[var(--lagoon)]"
+              style={{
+                width: s.size,
+                height: s.size,
+                opacity: 0.12,
+              }}
+            />
+          )}
+          {s.type === 'rect' && (
+            <div
+              className="rounded-md border border-[var(--lagoon)]"
+              style={{
+                width: s.size * 1.4,
+                height: s.size,
+                opacity: 0.1,
+                transform: `rotate(${s.delay * 10}deg)`,
+              }}
+            />
+          )}
+          {s.type === 'line' && (
+            <div
+              className="bg-[var(--lagoon)]"
+              style={{
+                width: s.size * 1.8,
+                height: 1.5,
+                opacity: 0.12,
+                transform: `rotate(${s.delay * 15 - 20}deg)`,
+              }}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function SignupForm({ onSuccess }: { onSuccess: () => void }) {
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [focused, setFocused] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -71,50 +291,115 @@ function SignupForm({ onSuccess }: { onSuccess: () => void }) {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[var(--bg-base)]">
-      <h1 className="font-serif text-5xl font-bold text-[var(--sea-ink)]">
-        &Sigma;ygma
-      </h1>
-      <p className="text-xl text-[var(--sea-ink-soft)]">
-        Collaborative whiteboard powered by Synadia Cloud
-      </p>
+    <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-[var(--bg-base)]">
+      <AnimatedBackground />
+      <FloatingShapes />
 
-      <form
-        onSubmit={handleSubmit}
-        className="flex w-full max-w-md flex-col gap-4"
-      >
-        <div>
-          <label
-            htmlFor="name"
-            className="mb-1 block font-medium text-[var(--sea-ink)]"
-          >
-            Your name
-          </label>
-          <input
-            id="name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            pattern="[a-zA-Z0-9_-]+"
-            placeholder="name"
-            required
-            className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-[var(--sea-ink)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-1 focus:ring-[var(--lagoon)]"
-          />
-          <p className="text-xs text-[var(--sea-ink-soft)]">
-            Letters, numbers, hyphens, and underscores only
+      <div
+        className="absolute inset-0"
+        style={{
+          backgroundImage:
+            'radial-gradient(circle, var(--line) 1px, transparent 1px)',
+          backgroundSize: '32px 32px',
+          opacity: 0.5,
+        }}
+      />
+
+      <div
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+        style={{
+          width: '800px',
+          height: '800px',
+          background:
+            'radial-gradient(circle, var(--hero-a) 0%, var(--hero-b) 40%, transparent 70%)',
+          filter: 'blur(60px)',
+        }}
+      />
+
+      <div className="relative z-10 flex flex-col items-center gap-8 px-4">
+        <div className="flex flex-col items-center gap-3">
+          <h1 className="font-serif text-6xl font-bold tracking-tight text-[var(--sea-ink)]">
+            &Sigma;ygma
+          </h1>
+          <p className="max-w-sm text-center text-lg text-[var(--sea-ink-soft)]">
+            Real-time collaborative whiteboard powered by{' '}
+            <span className="font-semibold text-[var(--lagoon)]">
+              Synadia Cloud
+            </span>
           </p>
         </div>
 
-        {error && <p className="text-red-500">{error}</p>}
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-full bg-[var(--lagoon-deep)] px-5 py-3 text-lg font-medium text-white hover:bg-[var(--lagoon)] disabled:opacity-50"
+        <form
+          onSubmit={handleSubmit}
+          className="flex w-full max-w-sm flex-col gap-5 rounded-2xl border border-[var(--line)] p-6 backdrop-blur-xl"
+          style={{
+            background: 'var(--surface)',
+            boxShadow:
+              '0 4px 24px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+          }}
         >
-          {loading ? 'Signing up...' : 'Get started'}
-        </button>
-      </form>
+          <div>
+            <label
+              htmlFor="name"
+              className="mb-1.5 block text-sm font-semibold text-[var(--sea-ink)]"
+            >
+              Your name
+            </label>
+            <div
+              className="overflow-hidden rounded-xl transition-shadow duration-200"
+              style={{
+                boxShadow: focused
+                  ? '0 0 0 2px var(--lagoon), 0 0 12px rgba(16, 185, 129, 0.15)'
+                  : '0 0 0 1px var(--line)',
+              }}
+            >
+              <input
+                id="name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
+                pattern="[a-zA-Z0-9_-]+"
+                placeholder="Enter your name"
+                required
+                className="w-full border-0 bg-[var(--surface-strong)] px-4 py-3 text-[var(--sea-ink)] placeholder-[var(--sea-ink-soft)] outline-none"
+              />
+            </div>
+            <p className="mt-1.5 text-xs text-[var(--sea-ink-soft)]">
+              Letters, numbers, hyphens, and underscores only
+            </p>
+          </div>
+
+          {error && (
+            <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-500">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="group relative overflow-hidden rounded-xl px-5 py-3.5 text-base font-semibold text-white transition-all duration-200 hover:shadow-lg disabled:opacity-50"
+            style={{
+              background:
+                'linear-gradient(135deg, var(--lagoon) 0%, var(--lagoon-deep) 100%)',
+              boxShadow: '0 4px 16px rgba(16, 185, 129, 0.25)',
+            }}
+          >
+            <span className="relative z-10">
+              {loading ? 'Signing up...' : 'Get started'}
+            </span>
+            <div
+              className="absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+              style={{
+                background:
+                  'linear-gradient(135deg, var(--lagoon-deep) 0%, var(--palm) 100%)',
+              }}
+            />
+          </button>
+        </form>
+      </div>
     </main>
   )
 }
@@ -296,10 +581,20 @@ function BoardCard({
       <Link
         to="/board/$id"
         params={{ id: board.id }}
-        search={{ jsPrefix: board.jsPrefix, deliverPrefix: board.deliverPrefix }}
+        search={{
+          jsPrefix: board.jsPrefix,
+          deliverPrefix: board.deliverPrefix,
+        }}
         className="block aspect-[10/7] w-full overflow-hidden bg-white"
       >
-        {nc && <WhiteboardPreview id={board.id} nc={nc} jsPrefix={board.jsPrefix} deliverPrefix={board.deliverPrefix} />}
+        {nc && (
+          <WhiteboardPreview
+            id={board.id}
+            nc={nc}
+            jsPrefix={board.jsPrefix}
+            deliverPrefix={board.deliverPrefix}
+          />
+        )}
       </Link>
       <div className="flex items-start justify-between border-t border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3">
         <div className="min-w-0 flex-1">
@@ -453,7 +748,11 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
       setImportName('')
       await nc.close()
       ncRef.current = null
-      navigate({ to: '/board/$id', params: { id }, search: { jsPrefix: undefined, deliverPrefix: undefined } })
+      navigate({
+        to: '/board/$id',
+        params: { id },
+        search: { jsPrefix: undefined, deliverPrefix: undefined },
+      })
     } catch (err) {
       console.error('import whiteboard:', err)
       setImporting(false)
@@ -469,7 +768,11 @@ function WhiteboardList({ onSignOut }: { onSignOut: () => void }) {
       const board = await createWhiteboard(nc, name)
       await nc.close()
       ncRef.current = null
-      navigate({ to: '/board/$id', params: { id: board.id }, search: { jsPrefix: undefined, deliverPrefix: undefined } })
+      navigate({
+        to: '/board/$id',
+        params: { id: board.id },
+        search: { jsPrefix: undefined, deliverPrefix: undefined },
+      })
     } catch (err) {
       console.error('create whiteboard:', err)
       setCreating(false)
